@@ -81,6 +81,75 @@ function Hero({ entry }: { entry: Entry }) {
   );
 }
 
+
+/** First-run welcome: two choices, zero jargon. Create mints a key on-device;
+    paste links this device to an existing shelf. */
+function Welcome({ onDone }: { onDone: () => void }) {
+  const [paste, setPaste] = useState(false);
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const finish = (r: SyncResult) => {
+    setBusy(false);
+    if (r.ok) { onDone(); return; }
+    setErr(r.reason === "auth"
+      ? "That key was not accepted. Double-check it and try again."
+      : "Could not reach the sync server. Check your connection and try again.");
+  };
+  const create = async () => {
+    setBusy(true); setErr("");
+    const k = [...crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(16).padStart(2, "0")).join("");
+    setSyncConfig({ url: SYNC_URL, key: k });
+    finish(await syncNow());
+  };
+  const link = async () => {
+    const k = key.trim();
+    if (!/^[A-Za-z0-9_-]{32,128}$/.test(k)) {
+      setErr("That key does not look right - it is the long one shown on your other device (cloud icon, then Advanced).");
+      return;
+    }
+    setBusy(true); setErr("");
+    setSyncConfig({ url: SYNC_URL, key: k });
+    finish(await syncNow());
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-9 bg-[#050507] px-6">
+      <div className="flex flex-col items-center gap-4 text-center">
+        <img src="./icon.png" alt="VidShelf" className="h-16 w-16 rounded-2xl" />
+        <h1 className="t-display text-white">Your videos, one shelf</h1>
+        <p className="t-body max-w-md text-slate-400">TV, Mac, phone, web - one library that follows you. Set-up takes ten seconds.</p>
+      </div>
+      <div className="flex w-full max-w-sm flex-col gap-3">
+        <button data-focusable data-autofocus disabled={busy} onClick={() => void create()}
+          className="bright flex items-center justify-center rounded-2xl bg-white px-6 py-3.5 text-[15px] font-bold text-black disabled:opacity-60">
+          {busy && !paste ? <Spinner /> : "Create my shelf"}
+        </button>
+        {!paste ? (
+          <button data-focusable onClick={() => setPaste(true)}
+            className="rounded-2xl border border-white/12 bg-white/[0.05] px-6 py-3.5 text-[15px] font-semibold text-slate-200 hover:bg-white/[0.1]">
+            I already have a key
+          </button>
+        ) : (
+          <div className="flex flex-col gap-2.5">
+            <input data-focusable value={key} onChange={(e) => { setKey(e.target.value); setErr(""); }} placeholder="Paste your key"
+              className="w-full rounded-2xl border border-white/12 bg-white/[0.05] px-4 py-3.5 font-mono text-sm text-slate-200 outline-none placeholder:text-slate-600 focus:border-white/40" />
+            <button data-focusable disabled={busy} onClick={() => void link()}
+              className="rounded-2xl border border-white/12 bg-white/[0.08] px-6 py-3 text-[15px] font-semibold text-white hover:bg-white/[0.14] disabled:opacity-60">
+              {busy ? <Spinner /> : "Link this device"}
+            </button>
+          </div>
+        )}
+        {err && <p className="t-small text-center text-red-300">{err}</p>}
+      </div>
+      <button data-focusable onClick={onDone} className="text-xs text-slate-600 underline underline-offset-2 hover:text-slate-400">
+        Skip for now - library stays on this device only
+      </button>
+    </div>
+  );
+}
+
 function timeAgo(ts: number): string {
   if (!ts) return "never";
   const m = Math.round((Date.now() - ts) / 60000);
@@ -197,7 +266,10 @@ function SyncModal({ onClose, onSynced }: { onClose: () => void; onSynced: () =>
 export default function LibraryView() {
   const [entries, setEntries] = useState<Entry[]>(() => library.list());
   const [query, setQuery] = useState("");
-  const [syncOpen, setSyncOpen] = useState(() => IS_WEB_BUILD && !hasCustomSyncConfig());
+  const [syncOpen, setSyncOpen] = useState(false);
+  const [welcomeNeeded, setWelcomeNeeded] = useState(
+    () => !getSyncConfig() && localStorage.getItem("vidshelf.welcomeSkipped") !== "1"
+  );
   const synced = getSyncConfig() !== null;
 
   // Pull once per app open - the only automatic D1 read.
@@ -302,6 +374,7 @@ export default function LibraryView() {
           )}
         </div>
       )}
+      {welcomeNeeded && <Welcome onDone={() => { localStorage.setItem("vidshelf.welcomeSkipped", "1"); setWelcomeNeeded(false); setEntries(library.list()); }} />}
       {syncOpen && <SyncModal onClose={() => setSyncOpen(false)} onSynced={() => setEntries(library.list())} />}
     </div>
   );

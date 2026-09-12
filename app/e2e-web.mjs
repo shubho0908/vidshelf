@@ -4,7 +4,7 @@ const ctx = await b.newContext({ viewport: { width: 412, height: 915 }, isMobile
 const pg = await ctx.newPage();
 const log = [];
 const ok = (n, c) => log.push(`${c ? 'PASS' : 'FAIL'} ${n}`);
-const KEY = '32215ea5055b9b66fdce15d8692748b843cdff00537dd98e';
+const KEY = process.env.VIDSHELF_E2E_KEY || "";
 
 await pg.goto('http://localhost:4180/', { waitUntil: 'networkidle' });
 await pg.waitForTimeout(800);
