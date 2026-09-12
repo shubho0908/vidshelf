@@ -411,6 +411,7 @@ export default function LibraryView() {
   const [entries, setEntries] = useState<Entry[]>(() => library.list());
   const [query, setQuery] = useState("");
   const [syncOpen, setSyncOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [welcomeNeeded, setWelcomeNeeded] = useState(
     () => !getSyncConfig() && localStorage.getItem("vidshelf.welcomeSkipped") !== "1"
   );
@@ -434,6 +435,20 @@ export default function LibraryView() {
   // filtered[0], not a removal from the library (slice(1) made the featured
   // entry unreachable from the grid and left 1-entry shelves looking empty).
   const shelf = filtered;
+
+  // Genuine refresh: pull the latest shelf state from sync, then re-render.
+  // What a TV user means by refresh - a video added on the website shows up
+  // here right after pressing it. Without a config, just re-read local state.
+  const doRefresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      if (getSyncConfig()) await syncNow().catch(() => null);
+      setEntries(library.list());
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const doExport = () => {
     const blob = new Blob([library.exportJson()], { type: "application/json" });
@@ -477,6 +492,10 @@ export default function LibraryView() {
           Import
         </button>
         <input ref={fileRef} type="file" accept="application/json" className="hidden" onChange={(e) => e.target.files?.[0] && doImport(e.target.files[0])} />
+        <button data-focusable onClick={() => void doRefresh()} title="Refresh - pull the latest shelf from your other devices" disabled={refreshing}
+          className="rounded-2xl border border-white/10 bg-white/[0.06] px-3.5 py-2.5 text-sm text-slate-200 backdrop-blur-md hover:bg-white/[0.12] disabled:opacity-60">
+          <svg className={refreshing ? "animate-spin" : ""} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36" /><path d="M21 3v6h-6" /></svg>
+        </button>
         <button data-focusable onClick={() => setSyncOpen(true)} title="Cloud sync"
           className={"rounded-2xl border px-3.5 py-2.5 text-sm backdrop-blur-md " + (synced ? "border-emerald-400/30 bg-emerald-400/[0.08] text-emerald-300" : "border-white/10 bg-white/[0.06] text-slate-200")}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.5 19a4.5 4.5 0 1 0 0-9 6 6 0 0 0-11.5 1.5A4 4 0 0 0 7 19h10.5z"/></svg>
