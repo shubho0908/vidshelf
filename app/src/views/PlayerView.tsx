@@ -199,7 +199,7 @@ export default function PlayerView({ id, index }: { id: string; index: number })
             onClick={toggleFullscreen}
             title="Fullscreen (f)"
             aria-label="Toggle fullscreen"
-            className="absolute bottom-4 right-4 z-20 flex h-11 w-11 items-center justify-center rounded-xl border border-white/20 bg-black/60 text-white backdrop-blur-md transition hover:bg-black/80"
+            className="absolute bottom-4 right-24 z-20 flex h-11 w-11 items-center justify-center rounded-xl border border-white/20 bg-black/60 text-white backdrop-blur-md transition hover:bg-black/80"
           >
             {isFs ? (
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M9 4v4a1 1 0 0 1-1 1H4M20 15h-4a1 1 0 0 0-1 1v4M15 20v-4a1 1 0 0 1 1-1h4M4 9h4a1 1 0 0 0 1-1V4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
