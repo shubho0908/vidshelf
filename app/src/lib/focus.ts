@@ -28,6 +28,8 @@ export function setFocus(el: HTMLElement | null): void {
 }
 
 export function focusFirst(): void {
+  const preferred = document.querySelector<HTMLElement>("[data-autofocus]");
+  if (preferred && preferred.getBoundingClientRect().width > 0) { setFocus(preferred); return; }
   const items = getFocusable();
   if (items.length) setFocus(items[0]);
 }
