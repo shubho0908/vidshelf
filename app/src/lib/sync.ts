@@ -209,3 +209,59 @@ export function scheduleSync(onDone?: (r: SyncResult) => void): void {
     void syncNow().then((r) => onDone?.(r));
   }, 2500);
 }
+
+// --- device pairing (6-char code flow) ---------------------------------------
+export interface PairStart { code: string; token: string; expiresIn: number }
+
+export async function pairStart(): Promise<PairStart | null> {
+  try {
+    const r = await fetch(SYNC_URL + "/pair/start", { method: "POST" });
+    if (!r.ok) return null;
+    const j = (await r.json()) as { code: string; token: string; expires_in: number };
+    return { code: j.code, token: j.token, expiresIn: j.expires_in };
+  } catch { return null; }
+}
+
+export type PairPollState = "pending" | "approved" | "expired" | "error";
+export async function pairStatus(token: string): Promise<{ state: PairPollState; key?: string }> {
+  try {
+    const r = await fetch(SYNC_URL + "/pair/status?token=" + encodeURIComponent(token));
+    if (!r.ok) return { state: "error" };
+    const j = (await r.json()) as { status: string; key?: string };
+    if (j.status === "approved" && j.key) return { state: "approved", key: j.key };
+    return { state: j.status === "pending" ? "pending" : "expired" };
+  } catch { return { state: "error" }; }
+}
+
+export async function pairApprove(code: string): Promise<"ok" | "invalid" | "locked" | "error"> {
+  const cfg = getSyncConfig();
+  if (!cfg) return "error";
+  try {
+    const r = await fetch(cfg.url + "/pair/approve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Sync-Key": cfg.key },
+      body: JSON.stringify({ code }),
+    });
+    if (r.ok) return "ok";
+    if (r.status === 429) return "locked";
+    if (r.status === 404) return "invalid";
+    return "error";
+  } catch { return "error"; }
+}
+
+export async function rotateKey(newKey: string): Promise<boolean> {
+  const cfg = getSyncConfig();
+  if (!cfg) return false;
+  try {
+    const r = await fetch(cfg.url + "/rotate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Sync-Key": cfg.key },
+      body: JSON.stringify({ newKey }),
+    });
+    return r.ok;
+  } catch { return false; }
+}
+
+export function mintKey(): string {
+  return [...crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(16).padStart(2, "0")).join("");
+}

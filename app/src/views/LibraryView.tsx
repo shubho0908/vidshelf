@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { library, type Entry } from "../lib/storage";
 import { IS_WEB_BUILD, SYNC_URL } from "../config";
-import { getSyncConfig, hasCustomSyncConfig, setSyncConfig, lastSyncAt, syncNow, scheduleSync, type SyncResult } from "../lib/sync";
+import { getSyncConfig, hasCustomSyncConfig, setSyncConfig, lastSyncAt, syncNow, scheduleSync, pairStart, pairStatus, pairApprove, rotateKey, mintKey, type SyncResult } from "../lib/sync";
 import { parseLink } from "../lib/router";
 import { nav } from "../lib/route";
 import { EntryThumb, KindBadge, Spinner } from "../components/bits";
@@ -82,10 +82,85 @@ function Hero({ entry }: { entry: Entry }) {
 }
 
 
-/** First-run welcome: two choices, zero jargon. Create mints a key on-device;
+
+/** Shows a 6-char pairing code, polls until a linked device approves it.
+    Timers are cleaned up on unmount - no leaked intervals. */
+function LinkCode({ onDone, onBack }: { onDone: () => void; onBack: () => void }) {
+  const [code, setCode] = useState("");
+  const [secsLeft, setSecsLeft] = useState(0);
+  const [state, setState] = useState<"loading" | "waiting" | "expired" | "error">("loading");
+  const [session, setSession] = useState(0); // bump to mint a fresh code
+
+  useEffect(() => {
+    let alive = true;
+    let iv: ReturnType<typeof setInterval> | undefined;
+    let deadline = 0;
+    (async () => {
+      setState("loading");
+      const p = await pairStart();
+      if (!alive) return;
+      if (!p) { setState("error"); return; }
+      setCode(p.code);
+      deadline = Date.now() + p.expiresIn * 1000;
+      setSecsLeft(p.expiresIn);
+      setState("waiting");
+      iv = setInterval(() => {
+        if (!alive) return;
+        const left = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+        setSecsLeft(left);
+        if (left > 0 && left % 3 === 0) {
+          void pairStatus(p.token).then(async (r) => {
+            if (!alive) return;
+            if (r.state === "approved" && r.key) {
+              if (iv) clearInterval(iv);
+              setSyncConfig({ url: SYNC_URL, key: r.key });
+              const res = await syncNow();
+              if (!alive) return;
+              if (res.ok) onDone();
+              else setState("error");
+            } else if (r.state === "expired") {
+              if (iv) clearInterval(iv);
+              setState("expired");
+            }
+          });
+        }
+        if (left <= 0) { if (iv) clearInterval(iv); setState((st) => (st === "waiting" ? "expired" : st)); }
+      }, 1000);
+    })();
+    return () => { alive = false; if (iv) clearInterval(iv); };
+  }, [session]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="flex w-full flex-col items-center gap-4">
+      {state === "loading" && <Spinner />}
+      {state === "waiting" && (
+        <>
+          <p className="t-small text-slate-400">On your other device: cloud icon, then "Link a device", and enter</p>
+          <p className="font-mono text-5xl font-bold tracking-[0.35em] text-white">{code}</p>
+          <p className="text-xs text-slate-600">Expires in {Math.floor(secsLeft / 60)}:{String(secsLeft % 60).padStart(2, "0")} - single use</p>
+        </>
+      )}
+      {state === "expired" && (
+        <>
+          <p className="t-small text-slate-300">That code expired.</p>
+          <button data-focusable data-autofocus onClick={() => setSession((n) => n + 1)}
+            className="rounded-2xl border border-white/12 bg-white/[0.08] px-6 py-3 text-[15px] font-semibold text-white hover:bg-white/[0.14]">
+            Get a new code
+          </button>
+        </>
+      )}
+      {state === "error" && (
+        <p className="t-small text-red-300">Could not reach the sync server. Check your connection and try again.</p>
+      )}
+      <button data-focusable onClick={onBack} className="text-xs text-slate-600 underline underline-offset-2 hover:text-slate-400">Back</button>
+    </div>
+  );
+}
+
+/** First-run welcome: two choices, zero jargon. Create mints a key on-device;: two choices, zero jargon. Create mints a key on-device;
     paste links this device to an existing shelf. */
 function Welcome({ onDone }: { onDone: () => void }) {
-  const [paste, setPaste] = useState(false);
+  const [view, setView] = useState<"menu" | "paste" | "link">("menu");
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -124,14 +199,22 @@ function Welcome({ onDone }: { onDone: () => void }) {
       <div className="flex w-full max-w-sm flex-col gap-3">
         <button data-focusable data-autofocus disabled={busy} onClick={() => void create()}
           className="bright flex items-center justify-center rounded-2xl bg-white px-6 py-3.5 text-[15px] font-bold text-black disabled:opacity-60">
-          {busy && !paste ? <Spinner /> : "Create my shelf"}
+          {busy && view === "menu" ? <Spinner /> : "Create my shelf"}
         </button>
-        {!paste ? (
-          <button data-focusable onClick={() => setPaste(true)}
-            className="rounded-2xl border border-white/12 bg-white/[0.05] px-6 py-3.5 text-[15px] font-semibold text-slate-200 hover:bg-white/[0.1]">
-            I already have a key
-          </button>
-        ) : (
+        {view === "menu" && (
+          <>
+            <button data-focusable onClick={() => setView("link")}
+              className="rounded-2xl border border-white/12 bg-white/[0.05] px-6 py-3.5 text-[15px] font-semibold text-slate-200 hover:bg-white/[0.1]">
+              Link this device
+            </button>
+            <button data-focusable onClick={() => setView("paste")}
+              className="text-xs text-slate-500 underline underline-offset-2 hover:text-slate-400">
+              I already have a key
+            </button>
+          </>
+        )}
+        {view === "link" && <LinkCode onDone={onDone} onBack={() => setView("menu")} />}
+        {view === "paste" && (
           <div className="flex flex-col gap-2.5">
             <input data-focusable value={key} onChange={(e) => { setKey(e.target.value); setErr(""); }} placeholder="Paste your key"
               className="w-full rounded-2xl border border-white/12 bg-white/[0.05] px-4 py-3.5 font-mono text-sm text-slate-200 outline-none placeholder:text-slate-600 focus:border-white/40" />
@@ -158,7 +241,7 @@ function timeAgo(ts: number): string {
   return `${Math.round(m / 60)} h ago`;
 }
 
-function SyncModal({ onClose, onSynced }: { onClose: () => void; onSynced: () => void }) {
+function SyncModal({ onClose, onSynced, onUnlinked }: { onClose: () => void; onSynced: () => void; onUnlinked: () => void }) {
   const cfg = getSyncConfig();
   const [url, setUrl] = useState(cfg?.url ?? SYNC_URL);
   const [key, setKey] = useState(cfg?.key ?? "");
@@ -167,6 +250,9 @@ function SyncModal({ onClose, onSynced }: { onClose: () => void; onSynced: () =>
   const [busy, setBusy] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [showPaste, setShowPaste] = useState(false);
+  const [linkCode, setLinkCode] = useState("");
+  const [confirmUnlink, setConfirmUnlink] = useState(false);
+  const [confirmRotate, setConfirmRotate] = useState(false);
   // Web build ships without the baked key: ask once, store on this device only.
   const needsKey = IS_WEB_BUILD && !hasCustomSyncConfig();
 
@@ -200,6 +286,39 @@ function SyncModal({ onClose, onSynced }: { onClose: () => void; onSynced: () =>
     setBusy(false);
     setStatus(describe(r));
     if (r.ok) onSynced();
+  };
+
+  const approveCode = async () => {
+    const c = linkCode.trim().toUpperCase();
+    if (c.length < 6) { setStatus("Enter the 6-letter code shown on the other device."); return; }
+    setBusy(true);
+    const r = await pairApprove(c);
+    setBusy(false);
+    setStatus(r === "ok" ? "Device linked - it will pick up your shelf in a few seconds."
+      : r === "invalid" ? "That code was not recognized. Check it on the other device and try again."
+      : r === "locked" ? "Too many wrong tries - wait 10 minutes and try again."
+      : "Could not reach the sync server.");
+    if (r === "ok") setLinkCode("");
+  };
+  const unlink = () => {
+    if (!confirmUnlink) { setConfirmUnlink(true); return; }
+    setSyncConfig(null);
+    onUnlinked();
+  };
+  const signOutEverywhere = async () => {
+    if (!confirmRotate) { setConfirmRotate(true); return; }
+    setBusy(true);
+    setStatus("Rotating your key...");
+    const nk = mintKey();
+    const okr = await rotateKey(nk);
+    if (!okr) { setBusy(false); setStatus("Could not reach the sync server - nothing changed."); setConfirmRotate(false); return; }
+    setSyncConfig({ url: SYNC_URL, key: nk });
+    setKey(nk);
+    await syncNow();
+    setBusy(false);
+    setConfirmRotate(false);
+    setStatus("Signed out everywhere. Your other devices will need re-linking with a code.");
+    onSynced();
   };
 
   return (
@@ -245,6 +364,29 @@ function SyncModal({ onClose, onSynced }: { onClose: () => void; onSynced: () =>
                 className="shrink-0 rounded-xl border border-white/15 bg-white/[0.08] px-4 text-xs font-semibold text-white hover:bg-white/[0.14]">Copy</button>
             </div>
           </>
+        )}
+        {!needsKey && (
+          <div className="flex flex-col gap-3 border-t border-white/10 pt-4">
+            <label className="t-eyebrow">Devices</label>
+            <div className="flex gap-2">
+              <input data-focusable value={linkCode} onChange={(e) => setLinkCode(e.target.value.toUpperCase())} placeholder="6-letter code" maxLength={8}
+                className="w-32 rounded-xl border border-white/10 bg-white/[0.06] px-4 py-2.5 font-mono text-sm tracking-widest text-slate-200 outline-none focus:border-white/40" />
+              <button data-focusable disabled={busy} onClick={() => void approveCode()}
+                className="rounded-xl border border-white/15 bg-white/[0.08] px-4 py-2.5 text-xs font-semibold text-white hover:bg-white/[0.14] disabled:opacity-50">
+                Link a device
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button data-focusable onClick={unlink}
+                className="rounded-xl border border-white/15 bg-white/[0.05] px-4 py-2 text-xs font-semibold text-slate-300 hover:bg-white/[0.1]">
+                {confirmUnlink ? "Tap again to confirm - this device forgets your shelf" : "Unlink this device"}
+              </button>
+              <button data-focusable disabled={busy} onClick={() => void signOutEverywhere()}
+                className="rounded-xl border border-red-500/30 bg-red-500/[0.08] px-4 py-2 text-xs font-semibold text-red-300 hover:bg-red-500/[0.16] disabled:opacity-50">
+                {confirmRotate ? "Tap again to confirm - ALL devices will need re-linking" : "Sign out everywhere"}
+              </button>
+            </div>
+          </div>
         )}
         {!needsKey && (
           <button data-focusable onClick={() => setAdvanced((a) => !a)} className="self-start text-xs text-slate-500 underline underline-offset-2">
@@ -375,7 +517,7 @@ export default function LibraryView() {
         </div>
       )}
       {welcomeNeeded && <Welcome onDone={() => { localStorage.setItem("vidshelf.welcomeSkipped", "1"); setWelcomeNeeded(false); setEntries(library.list()); }} />}
-      {syncOpen && <SyncModal onClose={() => setSyncOpen(false)} onSynced={() => setEntries(library.list())} />}
+      {syncOpen && <SyncModal onClose={() => setSyncOpen(false)} onSynced={() => setEntries(library.list())} onUnlinked={() => { setSyncOpen(false); localStorage.removeItem("vidshelf.welcomeSkipped"); setWelcomeNeeded(true); }} />}
     </div>
   );
 }
