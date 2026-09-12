@@ -65,7 +65,7 @@ export default function EntryFormView({ editId }: { editId?: string }) {
 
   return (
     <div className="flex min-h-full w-full flex-col">
-      <header className="chrome tv-safe fixed inset-x-0 top-0 z-30 flex items-center gap-3 px-5 py-4 md:px-10">
+      <header className="chrome tv-safe fixed inset-x-0 top-0 z-30 flex flex-wrap items-center gap-2.5 px-4 py-3.5 sm:gap-3 sm:px-5 md:px-10">
         <button data-focusable onClick={() => goBack("/")} className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-2.5 text-sm font-medium text-slate-200 backdrop-blur-md hover:bg-white/[0.12]">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
           Back
