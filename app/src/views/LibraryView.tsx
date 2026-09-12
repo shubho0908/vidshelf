@@ -46,7 +46,7 @@ function Hero({ entry }: { entry: Entry }) {
   const first = entry.videos[0]?.url ?? "";
   const parsed = first ? parseLink(first) : null;
   return (
-    <section className="relative -mx-5 -mt-5 h-[56vh] min-h-[340px] overflow-hidden md:-mx-10 md:-mt-10">
+    <section className="relative h-[56vh] min-h-[340px] overflow-hidden">
       <div className="absolute inset-0">
         <Thumb src={entryThumb(entry)} title={entry.title} />
       </div>
@@ -120,7 +120,7 @@ export default function LibraryView() {
   return (
     <div className="flex min-h-full w-full flex-col">
       {/* Floating chrome */}
-      <header className="chrome tv-safe fixed inset-x-0 top-0 z-30 flex items-center gap-3 px-5 py-4 md:px-10">
+      <header className="chrome tv-safe fixed inset-x-0 top-0 z-30 flex flex-wrap items-center gap-2.5 px-4 py-3.5 sm:gap-3 sm:px-5 md:px-10">
         <div className="flex items-center gap-2.5">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="black"><path d="M8 5.5v13l11-6.5-11-6.5z" /></svg>
