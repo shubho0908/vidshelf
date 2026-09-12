@@ -185,18 +185,24 @@ async function fullState(env, ns) {
 }
 
 // Latest release lookup, Cache API front (5 min) so the PAT stays cold.
-async function latestRelease(env, cache) {
-  const cacheKey = new Request("https://vidshelf.internal/release-latest");
+// Pick the newest published release that actually HAS the requested asset.
+// /releases/latest alone races the asset upload: a tag publishes the release
+// before CI finishes uploading binaries, and users hit "asset missing".
+async function releaseWithAsset(env, cache, kind, pat) {
+  const cacheKey = new Request("https://vidshelf.internal/release-for/" + kind);
   const hit = await cache.match(cacheKey);
   if (hit) return hit.json();
   const gh = { headers: { Authorization: "Bearer " + env.GH_RELEASE_TOKEN, "User-Agent": "vidshelf-sync", Accept: "application/vnd.github+json" } };
-  const rel = await fetch("https://api.github.com/repos/shubho0908/vidshelf/releases/latest", gh);
-  if (!rel.ok) return null;
-  const data = await rel.json();
-  await cache.put(cacheKey, new Response(JSON.stringify(data), {
-    headers: { "Content-Type": "application/json", "Cache-Control": "max-age=300" },
-  }));
-  return data;
+  const res = await fetch("https://api.github.com/repos/shubho0908/vidshelf/releases?per_page=10", gh);
+  if (!res.ok) return null;
+  const list = await res.json();
+  const rel = (Array.isArray(list) ? list : []).find((r) => !r.draft && (r.assets || []).some((a) => pat.test(a.name)));
+  if (rel) {
+    await cache.put(cacheKey, new Response(JSON.stringify(rel), {
+      headers: { "Content-Type": "application/json", "Cache-Control": "max-age=300" },
+    }));
+  }
+  return rel || null;
 }
 
 export default {
@@ -225,7 +231,7 @@ export default {
       const pat = { apk: /app-universal-debug\.apk$/, ipk: /\.ipk$/, dmg: /\.dmg$/ }[dl[1]];
 
       // Resolve current asset name via (cached) latest release.
-      const rel = await latestRelease(env, cache).catch(() => null);
+      const rel = await releaseWithAsset(env, cache, dl[1], pat).catch(() => null);
       if (!rel) return json({ error: "release lookup failed" }, 502);
       const asset = (rel.assets || []).find((a) => pat.test(a.name));
       if (!asset) return json({ error: "asset missing" }, 404);
