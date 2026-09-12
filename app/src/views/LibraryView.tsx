@@ -166,6 +166,7 @@ export default function LibraryView() {
       ) : (
         <div className="flex flex-col">
           {hero && <Hero entry={hero} />}
+          {(query || shelf.length > 0) && (
           <div className="tv-safe flex flex-col gap-5 px-5 pb-16 pt-8 md:px-10">
             <div className="t-eyebrow">{query ? `Results for "${query}"` : "Library"}</div>
             {shelf.length === 0 ? (
@@ -178,6 +179,7 @@ export default function LibraryView() {
               </div>
             )}
           </div>
+          )}
         </div>
       )}
     </div>
