@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { scheduleSync } from "../lib/sync";
 import { library, type Entry, type VideoItem } from "../lib/storage";
 import { parseLink, type ParsedLink } from "../lib/router";
 import { thumbnailForUrl } from "../lib/thumbnails";
@@ -77,6 +78,7 @@ export default function PlayerView({ id, index }: { id: string; index: number })
 
   const doDelete = () => {
     library.remove(entry.id);
+    scheduleSync();
     nav("/");
   };
 

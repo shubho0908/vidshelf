@@ -15,6 +15,36 @@ export interface Entry {
 }
 
 const KEY = "vidshelf.library.v1";
+const TOMB_KEY = "vidshelf.tombstones.v1";
+const DIRTY_KEY = "vidshelf.dirty.v1";
+
+// Tombstones (deleted entry id -> deletion time) and a dirty set (ids changed
+// since last sync) keep sync deltas small: pushes only carry what changed.
+export function readTombstones(): Record<string, number> {
+  try {
+    return JSON.parse(localStorage.getItem(TOMB_KEY) ?? "{}") as Record<string, number>;
+  } catch {
+    return {};
+  }
+}
+function writeTombstones(t: Record<string, number>): void {
+  localStorage.setItem(TOMB_KEY, JSON.stringify(t));
+}
+export function readDirty(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(DIRTY_KEY) ?? "[]") as string[]);
+  } catch {
+    return new Set();
+  }
+}
+export function writeDirty(d: Set<string>): void {
+  localStorage.setItem(DIRTY_KEY, JSON.stringify([...d]));
+}
+function markDirty(id: string): void {
+  const d = readDirty();
+  d.add(id);
+  writeDirty(d);
+}
 
 function uid(): string {
   return (crypto.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
@@ -46,6 +76,7 @@ export const library = {
     const now = Date.now();
     const entry: Entry = { ...input, id: uid(), createdAt: now, updatedAt: now };
     writeAll([...readAll(), entry]);
+    markDirty(entry.id);
     return entry;
   },
   update(id: string, patch: Partial<Omit<Entry, "id" | "createdAt">>): Entry | null {
@@ -54,6 +85,7 @@ export const library = {
     if (i < 0) return null;
     all[i] = { ...all[i], ...patch, id, updatedAt: Date.now() };
     writeAll(all);
+    markDirty(id);
     return all[i];
   },
   remove(id: string): boolean {
@@ -61,6 +93,10 @@ export const library = {
     const next = all.filter((e) => e.id !== id);
     if (next.length === all.length) return false;
     writeAll(next);
+    const t = readTombstones();
+    t[id] = Date.now();
+    writeTombstones(t);
+    markDirty(id);
     return true;
   },
   exportJson(): string {
@@ -72,6 +108,9 @@ export const library = {
     const existing = new Set(readAll().map((e) => e.id));
     const fresh = data.filter((e) => e && e.id && Array.isArray(e.videos) && !existing.has(e.id));
     writeAll([...readAll(), ...fresh]);
+    const d = readDirty();
+    for (const e of fresh) d.add(e.id);
+    writeDirty(d);
     return fresh.length;
   },
   makeVideo(url: string, title?: string): VideoItem {

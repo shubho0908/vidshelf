@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS entries (
+  id TEXT PRIMARY KEY,
+  updated_at INTEGER NOT NULL,
+  deleted INTEGER NOT NULL DEFAULT 0,
+  data TEXT NOT NULL
+);
