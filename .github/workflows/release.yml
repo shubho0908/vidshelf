@@ -106,7 +106,7 @@ jobs:
         if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$GITHUB_REF_NAME" 'src-tauri/gen/android/app/build/outputs/apk/**/*.apk' --clobber
+        run: gh release upload "$GITHUB_REF_NAME" 'src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk' --clobber
       - name: Upload apk as artifact (manual validation runs)
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
