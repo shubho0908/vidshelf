@@ -9,3 +9,11 @@ createRoot(document.getElementById("root")!).render(
     <App />
   </StrictMode>
 );
+
+// PWA shell caching - web build only (apps have local assets already).
+import { IS_WEB_BUILD } from "./config";
+if (IS_WEB_BUILD && "serviceWorker" in navigator && location.protocol === "https:") {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => undefined);
+  });
+}

@@ -8,6 +8,8 @@
 //   DELETE /thumb/:id        -> remove thumbnail
 //   POST   /thumb-deletions  -> { ids: [...] } batch delete (cascade from clients)
 //   GET    /thumb-index      -> { thumbs: [{ id, uploaded }] } for orphan sweeps
+//   GET    /download/<apk|ipk|dmg>  -> PUBLIC: streams the latest release asset
+//                  (repo is private; the token stays server-side in GH_RELEASE_TOKEN)
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
@@ -47,6 +49,29 @@ export default {
 
     const url = new URL(request.url);
     if (url.pathname === "/health") return json({ ok: true }); // unauthenticated liveness only
+
+    // Public download proxy: private-repo release assets, streamed server-side.
+    const dl = url.pathname.match(/^\/download\/(apk|ipk|dmg)$/);
+    if (dl && request.method === "GET") {
+      if (!env.GH_RELEASE_TOKEN) return json({ error: "downloads not configured" }, 503);
+      const pat = { apk: /app-universal-debug\.apk$/, ipk: /\.ipk$/, dmg: /\.dmg$/ }[dl[1]];
+      const gh = { headers: { Authorization: "Bearer " + env.GH_RELEASE_TOKEN, "User-Agent": "vidshelf-sync", Accept: "application/vnd.github+json" } };
+      const rel = await fetch("https://api.github.com/repos/shubho0908/vidshelf/releases/latest", gh);
+      if (!rel.ok) return json({ error: "release lookup failed" }, 502);
+      const data = await rel.json();
+      const asset = (data.assets || []).find((a) => pat.test(a.name));
+      if (!asset) return json({ error: "asset missing" }, 404);
+      const bin = await fetch(asset.url, { headers: { Authorization: "Bearer " + env.GH_RELEASE_TOKEN, "User-Agent": "vidshelf-sync", Accept: "application/octet-stream" } });
+      if (!bin.ok || !bin.body) return json({ error: "asset fetch failed" }, 502);
+      return new Response(bin.body, {
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "Content-Disposition": `attachment; filename="${asset.name}"`,
+          "Cache-Control": "public, max-age=300",
+          ...CORS,
+        },
+      });
+    }
 
     const key = request.headers.get("X-Sync-Key") || "";
     if (!env.VIDSHELF_KEY || key !== env.VIDSHELF_KEY) {
