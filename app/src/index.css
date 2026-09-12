@@ -60,7 +60,7 @@ button.tv-focus.bright { background: #ffffff; color: #000; }
 *::-webkit-scrollbar-thumb { background: #23262e; border-radius: 8px; }
 
 /* 10-foot baseline: 24px-ish at TV sizes, 80px safe margins */
-@media (min-width: 1600px) {
+@media (min-width: 1600px), (min-width: 900px) and (hover: none) and (pointer: none) {
   html { font-size: 21px; }
   .tv-safe { padding-left: 80px !important; padding-right: 80px !important; }
 }

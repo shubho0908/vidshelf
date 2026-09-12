@@ -61,6 +61,48 @@ function Player({ parsed }: { parsed: ParsedLink }) {
 export default function PlayerView({ id, index }: { id: string; index: number }) {
   const [entry] = useState<Entry | null>(() => library.get(id));
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [isFs, setIsFs] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onFs = () => setIsFs(Boolean(document.fullscreenElement || (document as { webkitFullscreenElement?: Element }).webkitFullscreenElement));
+    document.addEventListener("fullscreenchange", onFs);
+    document.addEventListener("webkitfullscreenchange", onFs as EventListener);
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.key === "f" || e.key === "F") && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) toggleFullscreen();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFs);
+      document.removeEventListener("webkitfullscreenchange", onFs as EventListener);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, []);
+
+  const toggleFullscreen = async () => {
+    const el = boxRef.current;
+    const doc = document as Document & { webkitExitFullscreen?: () => void; webkitFullscreenElement?: Element };
+    if (document.fullscreenElement || doc.webkitFullscreenElement) {
+      if (document.exitFullscreen) await document.exitFullscreen().catch(() => {});
+      else doc.webkitExitFullscreen?.();
+      return;
+    }
+    const req = el as (HTMLDivElement & { webkitRequestFullscreen?: () => Promise<void> | void }) | null;
+    try {
+      if (req?.requestFullscreen) await req.requestFullscreen();
+      else if (req?.webkitRequestFullscreen) await req.webkitRequestFullscreen();
+      else throw new Error("no element fullscreen");
+    } catch {
+      // Tauri/WKWebView fallback: fullscreen the whole app window
+      const tauriWin = (window as { __TAURI__?: { window?: { getCurrentWindow?: () => { setFullscreen: (v: boolean) => Promise<void>; isFullscreen: () => Promise<boolean> } } } }).__TAURI__?.window;
+      if (tauriWin?.getCurrentWindow) {
+        const w = tauriWin.getCurrentWindow();
+        const cur = await w.isFullscreen().catch(() => false);
+        await w.setFullscreen(!cur).catch(() => {});
+        setIsFs(!cur);
+      }
+    }
+  };
 
   const video: VideoItem | null = entry?.videos[index] ?? entry?.videos[0] ?? null;
   const parsed = useMemo(() => (video ? parseLink(video.url) : null), [video]);
@@ -105,8 +147,26 @@ export default function PlayerView({ id, index }: { id: string; index: number })
       </header>
 
       <div className="flex flex-col pt-[76px]">
-        <div className="w-full bg-black" style={{ height: "min(62vh, 100vw * 9 / 16)" }}>
+        <div
+          ref={boxRef}
+          className="relative w-full bg-black"
+          style={{ height: isFs ? "100%" : "min(62vh, 100vw * 9 / 16)" }}
+          onDoubleClick={toggleFullscreen}
+        >
           {parsed ? <Player parsed={parsed} /> : null}
+          <button
+            data-focusable
+            onClick={toggleFullscreen}
+            title="Fullscreen (f)"
+            aria-label="Toggle fullscreen"
+            className="absolute bottom-4 right-4 z-20 flex h-11 w-11 items-center justify-center rounded-xl border border-white/20 bg-black/60 text-white backdrop-blur-md transition hover:bg-black/80"
+          >
+            {isFs ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M9 4v4a1 1 0 0 1-1 1H4M20 15h-4a1 1 0 0 0-1 1v4M15 20v-4a1 1 0 0 1 1-1h4M4 9h4a1 1 0 0 0 1-1V4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            )}
+          </button>
         </div>
 
         <div className="tv-safe flex flex-col gap-8 px-5 py-8 md:px-10 xl:flex-row">

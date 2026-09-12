@@ -4,6 +4,26 @@
 
 Paste a link - it plays. A lightweight personal video library for **LG webOS TV** and **macOS**, from one codebase. No server, no transcoding, no storage cost: the app stores only your links (localStorage) and embeds the source player.
 
+## Install
+
+### macOS (.dmg)
+
+VidShelf is not signed with an Apple Developer certificate, so on first open Gatekeeper may say **"VidShelf is damaged and can't be opened"**. It is not damaged - that is the standard block for unsigned apps. One-time fix:
+
+1. Copy VidShelf.app to /Applications
+2. Run in Terminal: `xattr -dr com.apple.quarantine /Applications/VidShelf.app`
+3. Open normally
+
+Proper signing/notarization needs a paid Apple Developer account.
+
+### Android / TV (.apk)
+
+arm64, minSdk 24, leanback banner included. Sideload directly, or via ADB on a Jio STB: `adb connect <stb-ip>:5555 && adb install app-arm64-debug.apk`
+
+### LG webOS TV (.ipk)
+
+Install with Developer Mode: `ares-install -d <tv> com.shubhojeet.vidshelf_1.0.0_all.ipk`
+
 ## What it plays
 
 | Link type | How it plays | Caveats |
