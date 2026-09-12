@@ -3,14 +3,8 @@ import { library, type Entry } from "../lib/storage";
 import { SYNC_URL } from "../config";
 import { getSyncConfig, hasCustomSyncConfig, setSyncConfig, lastSyncAt, syncNow, scheduleSync, type SyncResult } from "../lib/sync";
 import { parseLink } from "../lib/router";
-import { thumbnailForUrl } from "../lib/thumbnails";
 import { nav } from "../lib/route";
-import { KindBadge, Thumb } from "../components/bits";
-
-function entryThumb(e: Entry): string | null {
-  const first = e.videos[0]?.url ?? "";
-  return first ? thumbnailForUrl(first) : null;
-}
+import { EntryThumb, KindBadge } from "../components/bits";
 
 function Card({ entry }: { entry: Entry }) {
   const first = entry.videos[0]?.url ?? "";
@@ -21,7 +15,7 @@ function Card({ entry }: { entry: Entry }) {
       onClick={() => nav(`/play/${entry.id}`)}
       className="group relative aspect-video w-full overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.03] text-left"
     >
-      <Thumb src={entryThumb(entry)} title={entry.title} />
+      <EntryThumb entry={entry} title={entry.title} />
       <div className="art-fade absolute inset-0" />
       <div className="absolute left-2.5 top-2.5">
         {entry.type === "playlist" ? (
@@ -50,7 +44,7 @@ function Hero({ entry }: { entry: Entry }) {
   return (
     <section className="relative h-[56vh] min-h-[340px] overflow-hidden">
       <div className="absolute inset-0">
-        <Thumb src={entryThumb(entry)} title={entry.title} />
+        <EntryThumb entry={entry} title={entry.title} />
       </div>
       <div className="hero-fade absolute inset-0" />
       <div className="tv-safe absolute inset-x-0 bottom-0 flex flex-col gap-4 px-5 pb-10 md:px-10">

@@ -2,6 +2,10 @@ export interface VideoItem {
   id: string;
   url: string;
   title?: string;
+  /** Custom thumbnail object id (t_<uuid>) - absent = auto-fetch from the link. */
+  thumbId?: string;
+  /** Bumped on each re-upload; sync freshness + cache-bust key. */
+  thumbV?: number;
 }
 
 export interface Entry {
@@ -12,6 +16,25 @@ export interface Entry {
   videos: VideoItem[];
   createdAt: number;
   updatedAt: number;
+  /** Custom thumbnail object id (t_<uuid>) - absent = auto-fetch from first link. */
+  thumbId?: string;
+  /** Bumped on each re-upload; sync freshness + cache-bust key. */
+  thumbV?: number;
+}
+
+/** Every thumbnail id an entry references (entry-level + per-video). */
+export function entryThumbIds(e: Entry): string[] {
+  const ids: string[] = [];
+  if (e.thumbId) ids.push(e.thumbId);
+  for (const v of e.videos) if (v.thumbId) ids.push(v.thumbId);
+  return ids;
+}
+
+/** Every thumbnail id referenced across the whole library. */
+export function allThumbIds(entries: Entry[]): Set<string> {
+  const s = new Set<string>();
+  for (const e of entries) for (const id of entryThumbIds(e)) s.add(id);
+  return s;
 }
 
 const KEY = "vidshelf.library.v1";

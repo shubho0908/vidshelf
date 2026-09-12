@@ -3,11 +3,24 @@
 //   GET  /pull  -> full state { entries: [...], tombstones: {...} }   (1 read query x2)
 //   POST /push  -> { entries: [...], tombstones: {...} } applies deltas,
 //                  last-write-wins on updatedAt; returns { applied, conflicts }
+//   PUT    /thumb/:id        -> store thumbnail blob in R2 (webp/jpeg, <=512KB)
+//   GET    /thumb/:id        -> stream thumbnail blob
+//   DELETE /thumb/:id        -> remove thumbnail
+//   POST   /thumb-deletions  -> { ids: [...] } batch delete (cascade from clients)
+//   GET    /thumb-index      -> { thumbs: [{ id, uploaded }] } for orphan sweeps
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, X-Sync-Key",
 };
+
+const THUMB_ID = /^t_[A-Za-z0-9_-]{6,64}$/;
+const THUMB_MIME = { "image/webp": 1, "image/jpeg": 1 };
+const THUMB_MAX = 512 * 1024; // clients encode to ~50-100KB; 512KB is generous headroom
+
+function thumbsMissing() {
+  return json({ error: "thumbnail storage not configured" }, 503);
+}
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -89,6 +102,61 @@ export default {
         }
         if (stmts.length) await env.DB.batch(stmts); // one round trip for the whole write set
         return json({ applied, skipped });
+      }
+
+      // --- thumbnail blobs (R2) -------------------------------------------
+      const m = url.pathname.match(/^\/thumb\/([A-Za-z0-9_-]+)$/);
+      if (m) {
+        if (!env.THUMBS) return thumbsMissing();
+        const id = m[1];
+        if (!THUMB_ID.test(id)) return json({ error: "bad id" }, 400);
+
+        if (request.method === "PUT") {
+          const mime = request.headers.get("Content-Type") || "";
+          if (!THUMB_MIME[mime]) return json({ error: "unsupported type" }, 415);
+          const len = Number(request.headers.get("Content-Length") || 0);
+          if (len > THUMB_MAX) return json({ error: "too large" }, 413);
+          const buf = await request.arrayBuffer();
+          if (buf.byteLength > THUMB_MAX) return json({ error: "too large" }, 413);
+          if (buf.byteLength === 0) return json({ error: "empty" }, 400);
+          await env.THUMBS.put(id, buf, { httpMetadata: { contentType: mime } });
+          return json({ ok: true, bytes: buf.byteLength });
+        }
+        if (request.method === "GET") {
+          const obj = await env.THUMBS.get(id);
+          if (!obj) return json({ error: "not found" }, 404);
+          return new Response(obj.body, {
+            headers: {
+              "Content-Type": obj.httpMetadata?.contentType || "image/webp",
+              "Cache-Control": "public, max-age=31536000, immutable", // ids are immutable
+              ...CORS,
+            },
+          });
+        }
+        if (request.method === "DELETE") {
+          await env.THUMBS.delete(id);
+          return json({ ok: true });
+        }
+      }
+
+      if (url.pathname === "/thumb-deletions" && request.method === "POST") {
+        if (!env.THUMBS) return thumbsMissing();
+        const body = await request.json();
+        const ids = (Array.isArray(body.ids) ? body.ids : []).filter((x) => typeof x === "string" && THUMB_ID.test(x)).slice(0, 500);
+        if (ids.length) await env.THUMBS.delete(ids);
+        return json({ ok: true, deleted: ids.length });
+      }
+
+      if (url.pathname === "/thumb-index" && request.method === "GET") {
+        if (!env.THUMBS) return thumbsMissing();
+        const thumbs = [];
+        let cursor;
+        do {
+          const page = await env.THUMBS.list({ limit: 1000, cursor });
+          for (const o of page.objects) thumbs.push({ id: o.key, uploaded: new Date(o.uploaded).getTime() });
+          cursor = page.truncated ? page.cursor : undefined;
+        } while (cursor);
+        return json({ thumbs });
       }
 
       return json({ error: "not found" }, 404);

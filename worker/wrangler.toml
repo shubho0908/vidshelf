@@ -6,3 +6,7 @@ compatibility_date = "2026-09-01"
 binding = "DB"
 database_name = "vidshelf"
 database_id = "DATABASE_ID_PLACEHOLDER"
+
+[[r2_buckets]]
+binding = "THUMBS"
+bucket_name = "vidshelf-thumbs"
