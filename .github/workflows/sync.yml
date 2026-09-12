@@ -32,6 +32,9 @@ jobs:
           fi
           sed -i "s/DATABASE_ID_PLACEHOLDER/$id/" wrangler.toml
           grep database_id wrangler.toml
+      - name: Ensure R2 bucket exists
+        run: |
+          out=$(npx --yes wrangler@latest r2 bucket create vidshelf-thumbs 2>&1) && echo "$out" || { echo "$out"; echo "$out" | grep -qi 'already exists' || exit 1; }
       - name: Apply schema
         run: npx --yes wrangler@latest d1 execute vidshelf --remote --file schema.sql --yes
       - name: Set sync key on the worker
