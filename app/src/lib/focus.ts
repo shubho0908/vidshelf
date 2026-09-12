@@ -16,6 +16,10 @@ export function getFocusable(): HTMLElement[] {
   return Array.from(document.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(visible);
 }
 
+export function enableKbMode(): void {
+  document.documentElement.classList.add("tv-kb");
+}
+
 export function setFocus(el: HTMLElement | null): void {
   if (current === el) return;
   current?.classList.remove("tv-focus");
@@ -46,6 +50,7 @@ function center(r: DOMRect) {
 export function move(dir: "up" | "down" | "left" | "right"): boolean {
   const items = getFocusable();
   if (!items.length) return false;
+  enableKbMode();
   (document.activeElement as HTMLElement | null)?.blur?.();
   if (!current || !document.contains(current) || !visible(current)) {
     setFocus(items[0]);
@@ -89,6 +94,12 @@ export function activate(): void {
 }
 
 export function installGlobalKeys(onBack: () => void): void {
+  const pointerUsed = () => {
+    document.documentElement.classList.remove("tv-kb");
+    clearFocus();
+  };
+  window.addEventListener("mousedown", pointerUsed);
+  window.addEventListener("touchstart", pointerUsed);
   window.addEventListener("keydown", (e) => {
     const active = document.activeElement as HTMLElement | null;
     const tag = (active?.tagName ?? "").toLowerCase();

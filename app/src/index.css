@@ -25,7 +25,7 @@ body {
 [data-focusable]:active { transform: scale(0.97); }
 
 /* TV focus = scale + bright ring + depth (Netflix/Apple TV pattern) */
-.tv-focus {
+html.tv-kb .tv-focus {
   outline: 3px solid #ffffff !important;
   outline-offset: 4px;
   border-radius: 18px;
@@ -35,8 +35,8 @@ body {
   z-index: 10;
   position: relative;
 }
-input.tv-focus, textarea.tv-focus { border-radius: 14px; transform: none; }
-button.tv-focus.bright { background: #ffffff; color: #000; }
+input.tv-focus, textareahtml.tv-kb .tv-focus { border-radius: 14px; transform: none; }
+html.tv-kb button.tv-focus.bright { background: #ffffff; color: #000; }
 
 /* Floating translucent chrome, content scrolls under */
 .chrome {
@@ -67,7 +67,7 @@ button.tv-focus.bright { background: #ffffff; color: #000; }
 
 @media (prefers-reduced-motion: reduce) {
   .view-enter { animation: none; }
-  [data-focusable], .tv-focus { transition: none; }
+  [data-focusable], html.tv-kb .tv-focus { transition: none; }
   * { scroll-behavior: auto !important; }
 }
 @media (prefers-reduced-transparency: reduce) {
