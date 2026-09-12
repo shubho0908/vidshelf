@@ -106,7 +106,7 @@ function Welcome({ onDone }: { onDone: () => void }) {
   const link = async () => {
     const k = key.trim();
     if (!/^[A-Za-z0-9_-]{32,128}$/.test(k)) {
-      setErr("That key does not look right - it is the long one shown on your other device (cloud icon, then Advanced).");
+      setErr("A key is at least 32 characters - find yours on your other device (cloud icon, then Advanced) and paste it here.");
       return;
     }
     setBusy(true); setErr("");
