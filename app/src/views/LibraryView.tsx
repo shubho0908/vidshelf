@@ -4,7 +4,7 @@ import { IS_WEB_BUILD, SYNC_URL } from "../config";
 import { getSyncConfig, hasCustomSyncConfig, setSyncConfig, lastSyncAt, syncNow, scheduleSync, type SyncResult } from "../lib/sync";
 import { parseLink } from "../lib/router";
 import { nav } from "../lib/route";
-import { EntryThumb, KindBadge } from "../components/bits";
+import { EntryThumb, KindBadge, Spinner } from "../components/bits";
 
 function Card({ entry }: { entry: Entry }) {
   const first = entry.videos[0]?.url ?? "";
@@ -97,8 +97,24 @@ function SyncModal({ onClose, onSynced }: { onClose: () => void; onSynced: () =>
     hasCustomSyncConfig() ? "" : "Last synced " + timeAgo(lastSyncAt()) + ".");
   const [busy, setBusy] = useState(false);
   const [advanced, setAdvanced] = useState(false);
+  const [showPaste, setShowPaste] = useState(false);
   // Web build ships without the baked key: ask once, store on this device only.
   const needsKey = IS_WEB_BUILD && !hasCustomSyncConfig();
+
+  // One-tap onboarding: mint a 48-char random key on this device, store, sync.
+  const createFresh = async () => {
+    const k = [...crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(16).padStart(2, "0")).join("");
+    setSyncConfig({ url: url.trim().replace(/\/+$/, "") || SYNC_URL, key: k });
+    setKey(k);
+    setBusy(true);
+    setStatus("Creating your shelf...");
+    const r = await syncNow();
+    setBusy(false);
+    setStatus(r.ok
+      ? "Shelf created. Your sync key lives on this device - find it under Advanced anytime."
+      : describe(r));
+    if (r.ok) onSynced();
+  };
 
   const describe = (r: SyncResult) =>
     r.ok ? `Synced - pushed ${r.pushed}, pulled ${r.pulled}.`
@@ -124,11 +140,23 @@ function SyncModal({ onClose, onSynced }: { onClose: () => void; onSynced: () =>
         {needsKey ? (
           <>
             <p className="t-small text-slate-400">
-              One-time setup on the web version: enter your sync key to link this browser to your shelf. It is stored only on this device, never sent anywhere except your own sync server.
+              One tap and this browser joins your shelf. A private sync key is created and stored only on this device - never sent anywhere except your own sync server.
             </p>
-            <label className="t-eyebrow">Sync key</label>
-            <input data-focusable value={key} onChange={(e) => setKey(e.target.value)} placeholder="Paste your sync key"
-              className="rounded-xl border border-white/10 bg-white/[0.06] px-4 py-2.5 text-sm text-slate-200 outline-none focus:border-white/40" />
+            <button data-focusable data-autofocus disabled={busy} onClick={() => void createFresh()}
+              className="bright self-start rounded-xl bg-white px-5 py-2.5 text-sm font-bold text-black disabled:opacity-50">
+              {busy ? <Spinner /> : "Create my shelf"}
+            </button>
+            {showPaste ? (
+              <>
+                <label className="t-eyebrow">Sync key</label>
+                <input data-focusable value={key} onChange={(e) => setKey(e.target.value)} placeholder="Paste your sync key"
+                  className="rounded-xl border border-white/10 bg-white/[0.06] px-4 py-2.5 text-sm text-slate-200 outline-none focus:border-white/40" />
+              </>
+            ) : (
+              <button data-focusable onClick={() => setShowPaste(true)} className="self-start text-xs text-slate-500 underline underline-offset-2">
+                I already have a key
+              </button>
+            )}
           </>
         ) : !hasCustomSyncConfig() && !advanced ? (
           <p className="t-small text-slate-400">
@@ -141,8 +169,12 @@ function SyncModal({ onClose, onSynced }: { onClose: () => void; onSynced: () =>
             <input data-focusable value={url} onChange={(e) => setUrl(e.target.value)}
               className="rounded-xl border border-white/10 bg-white/[0.06] px-4 py-2.5 font-mono text-xs text-slate-200 outline-none focus:border-white/40" />
             <label className="t-eyebrow">Sync key</label>
-            <input data-focusable value={key} onChange={(e) => setKey(e.target.value)} placeholder="Custom sync key"
-              className="rounded-xl border border-white/10 bg-white/[0.06] px-4 py-2.5 text-sm text-slate-200 outline-none focus:border-white/40" />
+            <div className="flex gap-2">
+              <input data-focusable value={key} onChange={(e) => setKey(e.target.value)} placeholder="Custom sync key"
+                className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/[0.06] px-4 py-2.5 font-mono text-xs text-slate-200 outline-none focus:border-white/40" />
+              <button data-focusable onClick={() => { try { void navigator.clipboard.writeText(key); setStatus("Key copied."); } catch { setStatus("Copy not available here - long-press to copy."); } }}
+                className="shrink-0 rounded-xl border border-white/15 bg-white/[0.08] px-4 text-xs font-semibold text-white hover:bg-white/[0.14]">Copy</button>
+            </div>
           </>
         )}
         {!needsKey && (
