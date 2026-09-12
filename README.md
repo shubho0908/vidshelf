@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/icon.png" width="128" alt="VidShelf icon"></p>
+
 # VidShelf
 
 Paste a link - it plays. A lightweight personal video library for **LG webOS TV** and **macOS**, from one codebase. No server, no transcoding, no storage cost: the app stores only your links (localStorage) and embeds the source player.
