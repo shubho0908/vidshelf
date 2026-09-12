@@ -23,6 +23,7 @@ export function getSyncConfig(): SyncConfig | null {
     const c = JSON.parse(localStorage.getItem(CFG_KEY) ?? "null") as SyncConfig | null;
     if (c && c.url && c.key) return c; // user override wins
   } catch { /* fall through to defaults */ }
+  if (!SYNC_KEY) return null; // web build ships without a key - user enters it once
   return { url: SYNC_URL, key: SYNC_KEY };
 }
 export function hasCustomSyncConfig(): boolean {

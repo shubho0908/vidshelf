@@ -10,4 +10,10 @@ export const YT_PLAYER_BASE = "https://shubho0908.github.io/vidshelf-player/";
 // private repo's releases - so sync works out of the box with zero typing,
 // on TV included. Rotate by changing the GitHub secret + rebuilding.
 export const SYNC_URL = "https://vidshelf-sync.shubhoeducation.workers.dev";
-export const SYNC_KEY = "32215ea5055b9b66fdce15d8692748b843cdff00537dd98e";
+// App binaries bake the key (private-repo releases only). The PUBLIC web build
+// aliases syncKey.baked to syncKey.none at build time (vite.config resolve.alias),
+// so the key never enters the web bundle; web users enter it once, stored in
+// localStorage. Verified by grepping dist-web after every web build.
+import { BAKED_SYNC_KEY } from "./syncKey.baked";
+export const SYNC_KEY: string = BAKED_SYNC_KEY;
+export const IS_WEB_BUILD = import.meta.env.VITE_WEB_BUILD === "1";
