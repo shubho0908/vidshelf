@@ -54,6 +54,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+      - run: npm ci && npm run build
+        working-directory: app
       - run: npx --yes @tauri-apps/cli@latest build
       - name: Create release if missing
         env:
@@ -88,6 +90,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+      - run: npm ci && npm run build
+        working-directory: app
       - name: Build debug APK (arm64)
         run: npx --yes @tauri-apps/cli@latest android build --debug --apk --target aarch64
       - name: Create release if missing
