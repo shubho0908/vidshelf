@@ -62,6 +62,16 @@ function ytIdFrom(u: URL): string | null {
   return null;
 }
 
+/** Drive playback goes through OUR worker proxy: Chromium ORB-blocks the raw
+ *  usercontent stream (octet-stream + nosniff) and anonymous fetch is
+ *  CORS-blocked, so the worker re-serves the same bytes streamed through
+ *  (no storage) with nosniff stripped. Live-proven to play while the embed
+ *  iframe shows Google's throttle page. Undocumented upstream - PlayerView
+ *  falls back to the Drive iframe on any error. */
+export function driveStreamUrl(fileId: string, workerBase: string): string {
+  return `${workerBase.replace(/\/+$/, "")}/stream/drive/${fileId}`;
+}
+
 function driveIdFrom(u: URL): string | null {
   const host = u.hostname.replace(/^www\./, "");
   if (host !== "drive.google.com" && host !== "docs.google.com") return null;

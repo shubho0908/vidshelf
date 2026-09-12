@@ -22,6 +22,43 @@
 //                            Per-IP combined budget: 3 downloads/min -> 429 +
 //                            Retry-After; 3 strikes while limited -> 30 min
 //                            cooldown. Only successful serves consume budget.
+// Warm-isolate cache for Drive file sizes (probe is a 1-byte Range fetch).
+// Concurrent players race the probe - dedupe with a promise cache.
+const driveSizeCache = new Map(); // fileId -> Promise<number|null>
+function driveUrl(id) {
+  const up = new URL("https://drive.usercontent.google.com/download");
+  up.searchParams.set("id", id);
+  up.searchParams.set("export", "download");
+  up.searchParams.set("confirm", "t");
+  return up.toString();
+}
+// usercontent flakes under rapid hits from an edge IP - retry before failing.
+async function driveFetch(id, rangeHeader) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const res = await fetch(driveUrl(id), { headers: { Range: rangeHeader }, redirect: "follow" });
+    const ctype = res.headers.get("content-type") || "";
+    if (res.status === 206 && !ctype.startsWith("text/html")) return res;
+    res.body?.cancel().catch(() => {});
+    if (attempt < 2) await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+  }
+  return null;
+}
+function driveSize(id) {
+  const hit = driveSizeCache.get(id);
+  if (hit) return hit;
+  const promise = (async () => {
+    const res = await driveFetch(id, "bytes=0-0");
+    const m = res && /\/(\d+)$/.exec(res.headers.get("content-range") || "");
+    if (!m) {
+      driveSizeCache.delete(id); // do not cache failures
+      return null;
+    }
+    return Number(m[1]);
+  })();
+  driveSizeCache.set(id, promise);
+  return promise;
+}
+
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
@@ -233,6 +270,63 @@ export default {
       })());
       ctx.waitUntil(cache.put(serveKey, new Response(toCache, { headers })));
       return new Response(toClient, { headers });
+    }
+
+    // ---- Drive media proxy: <video> cannot load usercontent directly on
+    // Chromium (octet-stream + nosniff -> ERR_BLOCKED_BY_ORB), and anonymous
+    // fetch is CORS-blocked. The worker re-serves the SAME bytes streamed
+    // (no storage) with Range passthrough and the nosniff stripped, so our
+    // own player works on every platform. HTML interstitials (quota pages)
+    // become 502 so the client falls back to the Drive iframe.
+    const dm = url.pathname.match(/^\/stream\/drive\/([A-Za-z0-9_-]{20,})$/);
+    if (dm) {
+      if (request.method !== "GET") return json({ error: "method" }, 405);
+      const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      if (!(await rateGate(env, "stream", ip, 60, 600))) { // seeks cost a request each
+        return json({ error: "rate_limited" }, 429, { "Retry-After": "60" });
+      }
+      // usercontent only serves BYTES for CLOSED ranges (bytes=N-M); an
+      // open-ended "bytes=0-" or a bare GET gets a 200 text/html interstitial
+      // instead. So: learn the total size from a cheap 1-byte probe, then
+      // translate every client request into a closed range capped at 64MB
+      // per hop. Returning less than asked is valid HTTP - the media stack
+      // just issues the next range.
+      const size = await driveSize(dm[1]);
+      if (size == null) return json({ error: "upstream interstitial" }, 502);
+      // usercontent enforces a DYNAMIC per-IP range-size cap (observed:
+      // 64MB worked, later 8MB already returned the HTML interstitial; 4MB
+      // held). Start at 4MB and halve-shrink on interstitial until it serves.
+      let start = 0;
+      let wantEnd = size - 1;
+      const rm = /^bytes=(\d+)-(\d*)$/.exec(request.headers.get("Range") || "");
+      if (rm) {
+        start = Number(rm[1]);
+        if (rm[2]) wantEnd = Math.min(Number(rm[2]), size - 1);
+      }
+      if (start >= size) {
+        return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${size}`, ...CORS } });
+      }
+      let res = null;
+      let end = start;
+      for (const win of [4, 1].map((mb) => mb * 1024 * 1024).concat([256 * 1024, 64 * 1024])) {
+        end = Math.min(wantEnd, start + win - 1, size - 1);
+        if (end < start) break;
+        res = await driveFetch(dm[1], `bytes=${start}-${end}`);
+        if (res) break;
+      }
+      if (!res || end < start) return json({ error: "upstream failed" }, 502);
+      const ctype = res.headers.get("content-type") || "";
+      const h = new Headers();
+      // ORB blocks opaque types (octet-stream) for media even without
+      // nosniff - relabel as video. Chromium demuxes by content, so the
+      // container (mp4/webm/mkv) is sniffed from the bytes themselves.
+      h.set("Content-Type", ctype.startsWith("video/") ? ctype : "video/mp4"); // nosniff intentionally NOT copied
+      h.set("Content-Range", `bytes ${start}-${end}/${size}`);
+      h.set("Content-Length", String(end - start + 1));
+      h.set("Accept-Ranges", "bytes");
+      h.set("Cache-Control", "private, max-age=3600");
+      Object.entries(CORS).forEach(([k, v]) => h.set(k, v));
+      return new Response(res.body, { status: 206, headers: h });
     }
 
     // ---- device pairing: public endpoints (IP-limited, tiny tables) --------
