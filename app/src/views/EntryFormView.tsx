@@ -212,7 +212,7 @@ export default function EntryFormView({ editId }: { editId?: string }) {
         <h1 className="t-title">{existing ? "Edit entry" : "Add to shelf"}</h1>
       </header>
 
-      <div className="tv-safe mx-auto flex w-full max-w-2xl flex-col gap-7 px-5 pb-16 pt-28 md:px-10">
+      <div className="tv-safe mx-auto flex w-full max-w-2xl flex-col gap-7 px-5 pb-16 pt-chrome-lg md:px-10">
         <div className="flex flex-col gap-2.5">
           <span className="t-eyebrow">What are you adding?</span>
           <div className="grid grid-cols-2 gap-4">
