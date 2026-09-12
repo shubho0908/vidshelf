@@ -5,5 +5,5 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   base: "./",
-  build: { target: "es2020", chunkSizeWarningLimit: 900 },
+  build: { target: "es2018", chunkSizeWarningLimit: 900 },
 });
