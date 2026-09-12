@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { library, type Entry } from "../lib/storage";
 import { SYNC_URL } from "../config";
-import { getSyncConfig, setSyncConfig, lastSyncAt, syncNow, scheduleSync, type SyncResult } from "../lib/sync";
+import { getSyncConfig, hasCustomSyncConfig, setSyncConfig, lastSyncAt, syncNow, scheduleSync, type SyncResult } from "../lib/sync";
 import { parseLink } from "../lib/router";
 import { thumbnailForUrl } from "../lib/thumbnails";
 import { nav } from "../lib/route";
@@ -99,8 +99,10 @@ function SyncModal({ onClose, onSynced }: { onClose: () => void; onSynced: () =>
   const cfg = getSyncConfig();
   const [url, setUrl] = useState(cfg?.url ?? SYNC_URL);
   const [key, setKey] = useState(cfg?.key ?? "");
-  const [status, setStatus] = useState<string>("");
+  const [status, setStatus] = useState<string>(() =>
+    hasCustomSyncConfig() ? "" : "Last synced " + timeAgo(lastSyncAt()) + ".");
   const [busy, setBusy] = useState(false);
+  const [advanced, setAdvanced] = useState(false);
 
   const describe = (r: SyncResult) =>
     r.ok ? `Synced - pushed ${r.pushed}, pulled ${r.pulled}.`
@@ -123,15 +125,24 @@ function SyncModal({ onClose, onSynced }: { onClose: () => void; onSynced: () =>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5 backdrop-blur-sm" onClick={onClose}>
       <div className="flex w-full max-w-md flex-col gap-4 rounded-3xl border border-white/10 bg-[#141418] p-6" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-lg font-bold text-white">Cloud sync</h2>
-        <p className="t-small text-slate-400">
-          One sync key keeps TV, Mac and phone on the same shelf. Set it up on your phone first, then enter the same key here.
-        </p>
-        <label className="t-eyebrow">Worker URL</label>
-        <input data-focusable value={url} onChange={(e) => setUrl(e.target.value)}
-          className="rounded-xl border border-white/10 bg-white/[0.06] px-4 py-2.5 font-mono text-xs text-slate-200 outline-none focus:border-white/40" />
-        <label className="t-eyebrow">Sync key</label>
-        <input data-focusable value={key} onChange={(e) => setKey(e.target.value)} placeholder="Paste the sync key"
-          className="rounded-xl border border-white/10 bg-white/[0.06] px-4 py-2.5 text-sm text-slate-200 outline-none focus:border-white/40" />
+        {!hasCustomSyncConfig() && !advanced ? (
+          <p className="t-small text-slate-400">
+            On automatically on every device with this app - TV, Mac, phone stay on the same shelf. Nothing to type, anywhere.
+          </p>
+        ) : null}
+        {advanced && (
+          <>
+            <label className="t-eyebrow">Worker URL</label>
+            <input data-focusable value={url} onChange={(e) => setUrl(e.target.value)}
+              className="rounded-xl border border-white/10 bg-white/[0.06] px-4 py-2.5 font-mono text-xs text-slate-200 outline-none focus:border-white/40" />
+            <label className="t-eyebrow">Sync key</label>
+            <input data-focusable value={key} onChange={(e) => setKey(e.target.value)} placeholder="Custom sync key"
+              className="rounded-xl border border-white/10 bg-white/[0.06] px-4 py-2.5 text-sm text-slate-200 outline-none focus:border-white/40" />
+          </>
+        )}
+        <button data-focusable onClick={() => setAdvanced((a) => !a)} className="self-start text-xs text-slate-500 underline underline-offset-2">
+          {advanced ? "Hide advanced" : "Advanced: custom worker / key"}
+        </button>
         {status && <p className="t-small text-slate-300">{status}</p>}
         <div className="flex items-center gap-3">
           <button data-focusable onClick={save} className="rounded-xl border border-white/15 bg-white/[0.08] px-5 py-2.5 text-sm font-semibold text-white">Save</button>
