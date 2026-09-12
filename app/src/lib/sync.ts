@@ -3,6 +3,7 @@
 //  - push: only dirty entries + new tombstones, one POST
 //  - pull: once per app open, or manual; one GET
 //  - writes debounced (no per-keystroke traffic)
+import { SYNC_KEY, SYNC_URL } from "../config";
 import { library, readDirty, readTombstones, writeDirty, type Entry } from "./storage";
 
 const CFG_KEY = "vidshelf.sync.cfg.v1";
@@ -16,10 +17,12 @@ export interface SyncConfig {
 export function getSyncConfig(): SyncConfig | null {
   try {
     const c = JSON.parse(localStorage.getItem(CFG_KEY) ?? "null") as SyncConfig | null;
-    return c && c.url && c.key ? c : null;
-  } catch {
-    return null;
-  }
+    if (c && c.url && c.key) return c; // user override wins
+  } catch { /* fall through to defaults */ }
+  return { url: SYNC_URL, key: SYNC_KEY };
+}
+export function hasCustomSyncConfig(): boolean {
+  return localStorage.getItem(CFG_KEY) !== null;
 }
 export function setSyncConfig(c: SyncConfig | null): void {
   if (c) localStorage.setItem(CFG_KEY, JSON.stringify(c));
