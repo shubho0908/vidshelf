@@ -205,7 +205,38 @@ async function releaseWithAsset(env, cache, kind, pat) {
   return rel || null;
 }
 
+// Auto-warm: every few minutes, mirror the newest release assets into R2 so
+// the first real user download is served hot, not streamed cold from GitHub.
+const DL_PATTERNS = { apk: /app-universal-debug\.apk$/, ipk: /\.ipk$/, dmg: /\.dmg$/ };
+
+async function warmReleases(env) {
+  const cache = caches.default;
+  const liveKeys = new Set();
+  for (const [kind, pat] of Object.entries(DL_PATTERNS)) {
+    const rel = await releaseWithAsset(env, cache, kind, pat).catch(() => null);
+    if (!rel) continue;
+    const asset = (rel.assets || []).find((a) => pat.test(a.name));
+    if (!asset) continue;
+    const key = "releases/" + rel.tag_name + "/" + asset.name;
+    liveKeys.add(key);
+    if (await env.THUMBS.head(key)) continue;
+    const resp = await fetch(asset.url, {
+      headers: { Authorization: "Bearer " + env.GH_RELEASE_TOKEN, Accept: "application/octet-stream", "User-Agent": "vidshelf-sync" },
+    });
+    if (!resp.ok || !resp.body) continue;
+    await env.THUMBS.put(key, resp.body, { httpMetadata: { contentType: "application/octet-stream" } });
+  }
+  // latest-only rollover, same rule as the download route
+  const listed = await env.THUMBS.list({ prefix: "releases/" });
+  const stale = listed.objects.filter((o) => !liveKeys.has(o.key)).map((o) => o.key);
+  if (stale.length) await env.THUMBS.delete(stale);
+}
+
 export default {
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(warmReleases(env));
+  },
+
   async fetch(request, env, ctx) {
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
 
