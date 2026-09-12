@@ -10,6 +10,9 @@ on:
   # no macOS minutes) - used to validate the apk pipeline before a tag.
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: true
