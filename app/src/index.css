@@ -6,10 +6,19 @@ body {
   background: #0a0c11;
   color: #e8ebf2;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-optical-sizing: auto;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
 }
 ::selection { background: #3b82f6; }
+
+/* Typography: size-specific tracking/leading (WWDC discipline) */
+h1, h2, .heading { letter-spacing: -0.015em; line-height: 1.15; }
+
+/* Instant press feedback on pointer-down (Response: kill latency) */
+[data-focusable] { transition: transform 100ms ease-out, background-color 120ms ease, border-color 120ms ease; }
+[data-focusable]:active { transform: scale(0.97); }
 
 /* Remote-control focus ring (applied by focus manager) */
 .tv-focus {
@@ -18,18 +27,54 @@ body {
   border-radius: 16px;
   box-shadow: 0 0 0 6px rgba(91, 157, 255, 0.15), 0 12px 40px rgba(0,0,0,.45);
   transform: scale(1.02);
-  transition: transform .12s ease, box-shadow .12s ease;
+  transition: transform 120ms ease, box-shadow 120ms ease;
   z-index: 5;
   position: relative;
 }
 input.tv-focus, textarea.tv-focus { border-radius: 12px; }
+
+/* Translucent sticky chrome: content scrolls underneath (Materials & depth) */
+.chrome {
+  background: rgba(10, 12, 17, 0.72);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+}
+/* Scroll edge effect instead of a hard divider */
+.chrome::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -18px;
+  height: 18px;
+  background: linear-gradient(to bottom, rgba(10,12,17,0.5), transparent);
+  pointer-events: none;
+}
+
+/* Route transitions: short opacity+transform, compositor-only */
+@keyframes view-enter {
+  from { opacity: 0; transform: translateY(6px) scale(0.997); }
+  to   { opacity: 1; transform: none; }
+}
+.view-enter { animation: view-enter 180ms ease-out both; }
 
 /* Thin scrollbars */
 * { scrollbar-width: thin; scrollbar-color: #2a3040 transparent; }
 *::-webkit-scrollbar { width: 8px; height: 8px; }
 *::-webkit-scrollbar-thumb { background: #2a3040; border-radius: 8px; }
 
-/* Big-screen readability */
+/* Big-screen readability (TV at 1080p+) */
 @media (min-width: 1600px) {
   html { font-size: 20px; }
+}
+
+/* Accessibility signals */
+@media (prefers-reduced-motion: reduce) {
+  .view-enter { animation: none; }
+  [data-focusable], .tv-focus { transition: none; }
+  * { scroll-behavior: auto !important; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .chrome { background: #0a0c11; backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+@media (prefers-contrast: more) {
+  [data-focusable] { border-color: rgba(255,255,255,0.35) !important; }
 }

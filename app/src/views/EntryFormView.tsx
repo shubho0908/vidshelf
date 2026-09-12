@@ -66,7 +66,7 @@ export default function EntryFormView({ editId }: { editId?: string }) {
         <button data-focusable onClick={() => goBack("/")} className="rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2 text-sm text-slate-300 hover:bg-white/[0.08]">
           Back
         </button>
-        <h1 className="text-xl font-bold tracking-tight">{existing ? "Edit entry" : "Add to shelf"}</h1>
+        <h1 className="heading text-xl font-bold">{existing ? "Edit entry" : "Add to shelf"}</h1>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
