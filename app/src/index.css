@@ -3,78 +3,76 @@
 :root { color-scheme: dark; }
 html, body, #root { height: 100%; }
 body {
-  background: #0a0c11;
-  color: #e8ebf2;
+  background: #050507;
+  color: #f2f3f7;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-optical-sizing: auto;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
 }
-::selection { background: #3b82f6; }
+::selection { background: #ffffff; color: #000; }
 
-/* Typography: size-specific tracking/leading (WWDC discipline) */
-h1, h2, .heading { letter-spacing: -0.015em; line-height: 1.15; }
+/* ---- 10-foot type scale (5 sizes, size-specific tracking) ---- */
+.t-display { font-size: clamp(2.2rem, 4.5vw, 3.4rem); line-height: 1.04; letter-spacing: -0.022em; font-weight: 700; }
+.t-title   { font-size: 1.45rem; line-height: 1.15; letter-spacing: -0.015em; font-weight: 650; }
+.t-body    { font-size: 1rem; line-height: 1.5; }
+.t-small   { font-size: 0.875rem; line-height: 1.45; }
+.t-eyebrow { font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 600; color: #9aa0ae; }
 
-/* Instant press feedback on pointer-down (Response: kill latency) */
-[data-focusable] { transition: transform 100ms ease-out, background-color 120ms ease, border-color 120ms ease; }
+/* Instant press feedback (pointer-down, not release) */
+[data-focusable] { transition: transform 100ms ease-out, background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease; }
 [data-focusable]:active { transform: scale(0.97); }
 
-/* Remote-control focus ring (applied by focus manager) */
+/* TV focus = scale + bright ring + depth (Netflix/Apple TV pattern) */
 .tv-focus {
-  outline: 3px solid #5b9dff !important;
-  outline-offset: 3px;
-  border-radius: 16px;
-  box-shadow: 0 0 0 6px rgba(91, 157, 255, 0.15), 0 12px 40px rgba(0,0,0,.45);
-  transform: scale(1.02);
-  transition: transform 120ms ease, box-shadow 120ms ease;
-  z-index: 5;
+  outline: 3px solid #ffffff !important;
+  outline-offset: 4px;
+  border-radius: 18px;
+  box-shadow: 0 0 0 8px rgba(255,255,255,0.12), 0 24px 60px rgba(0,0,0,.6);
+  transform: scale(1.045);
+  transition: transform 140ms ease, box-shadow 140ms ease;
+  z-index: 10;
   position: relative;
 }
-input.tv-focus, textarea.tv-focus { border-radius: 12px; }
+input.tv-focus, textarea.tv-focus { border-radius: 14px; transform: none; }
+button.tv-focus.bright { background: #ffffff; color: #000; }
 
-/* Translucent sticky chrome: content scrolls underneath (Materials & depth) */
+/* Floating translucent chrome, content scrolls under */
 .chrome {
-  background: rgba(10, 12, 17, 0.72);
-  backdrop-filter: blur(20px) saturate(160%);
-  -webkit-backdrop-filter: blur(20px) saturate(160%);
-}
-/* Scroll edge effect instead of a hard divider */
-.chrome::after {
-  content: "";
-  position: absolute;
-  left: 0; right: 0; bottom: -18px;
-  height: 18px;
-  background: linear-gradient(to bottom, rgba(10,12,17,0.5), transparent);
-  pointer-events: none;
+  background: linear-gradient(to bottom, rgba(5,5,7,0.85), rgba(5,5,7,0.55) 70%, transparent);
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
 }
 
-/* Route transitions: short opacity+transform, compositor-only */
+/* Card art overlay */
+.art-fade { background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.25) 45%, transparent 75%); }
+.hero-fade { background: linear-gradient(to top, #050507 2%, rgba(5,5,7,0.55) 40%, rgba(5,5,7,0.15) 70%, rgba(5,5,7,0.4) 100%); }
+
 @keyframes view-enter {
-  from { opacity: 0; transform: translateY(6px) scale(0.997); }
+  from { opacity: 0; transform: translateY(8px) scale(0.996); }
   to   { opacity: 1; transform: none; }
 }
-.view-enter { animation: view-enter 180ms ease-out both; }
+.view-enter { animation: view-enter 220ms ease-out both; }
 
-/* Thin scrollbars */
-* { scrollbar-width: thin; scrollbar-color: #2a3040 transparent; }
+* { scrollbar-width: thin; scrollbar-color: #23262e transparent; }
 *::-webkit-scrollbar { width: 8px; height: 8px; }
-*::-webkit-scrollbar-thumb { background: #2a3040; border-radius: 8px; }
+*::-webkit-scrollbar-thumb { background: #23262e; border-radius: 8px; }
 
-/* Big-screen readability (TV at 1080p+) */
+/* 10-foot baseline: 24px-ish at TV sizes, 80px safe margins */
 @media (min-width: 1600px) {
-  html { font-size: 20px; }
+  html { font-size: 21px; }
+  .tv-safe { padding-left: 80px !important; padding-right: 80px !important; }
 }
 
-/* Accessibility signals */
 @media (prefers-reduced-motion: reduce) {
   .view-enter { animation: none; }
   [data-focusable], .tv-focus { transition: none; }
   * { scroll-behavior: auto !important; }
 }
 @media (prefers-reduced-transparency: reduce) {
-  .chrome { background: #0a0c11; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .chrome { background: #050507; backdrop-filter: none; -webkit-backdrop-filter: none; }
 }
 @media (prefers-contrast: more) {
-  [data-focusable] { border-color: rgba(255,255,255,0.35) !important; }
+  [data-focusable] { border-color: rgba(255,255,255,0.4) !important; }
 }
