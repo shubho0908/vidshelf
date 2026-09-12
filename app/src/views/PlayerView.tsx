@@ -167,26 +167,26 @@ export default function PlayerView({ id, index }: { id: string; index: number })
   return (
     <div className="flex min-h-full w-full flex-col">
       <header className="chrome tv-safe fixed inset-x-0 top-0 z-30 flex flex-wrap items-center gap-2.5 px-4 py-3.5 sm:gap-3 sm:px-5 md:px-10">
-        <button data-focusable onClick={() => goBack("/")} className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-2.5 text-sm font-medium text-slate-200 backdrop-blur-md hover:bg-white/[0.12]">
+        <button data-focusable onClick={() => goBack("/")} className="flex shrink-0 items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2.5 text-[13px] font-medium text-slate-200 backdrop-blur-md hover:bg-white/[0.12] sm:px-4 sm:text-sm">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
           Back
         </button>
         <h1 className="t-title min-w-0 flex-1 truncate">{entry.title}</h1>
-        {parsed && <KindBadge kind={parsed.kind} label={parsed.label} />}
-        <button data-focusable onClick={() => nav(`/edit/${entry.id}`)} className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-2.5 text-sm font-medium text-slate-200 backdrop-blur-md hover:bg-white/[0.12]">
+        {parsed && <span className="hidden sm:block"><KindBadge kind={parsed.kind} label={parsed.label} /></span>}
+        <button data-focusable onClick={() => nav(`/edit/${entry.id}`)} className="shrink-0 rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2.5 text-[13px] font-medium text-slate-200 backdrop-blur-md hover:bg-white/[0.12] sm:px-4 sm:text-sm">
           Edit
         </button>
         <button
           data-focusable
           onClick={() => (confirmDelete ? doDelete() : setConfirmDelete(true))}
           onBlur={() => setConfirmDelete(false)}
-          className={`rounded-2xl border px-4 py-2.5 text-sm font-medium backdrop-blur-md ${confirmDelete ? "border-red-400/60 bg-red-500/20 text-red-100" : "border-white/10 bg-white/[0.06] text-slate-200 hover:bg-white/[0.12]"}`}
+          className={`shrink-0 rounded-2xl border px-3 py-2.5 text-[13px] font-medium backdrop-blur-md sm:px-4 sm:text-sm ${confirmDelete ? "border-red-400/60 bg-red-500/20 text-red-100" : "border-white/10 bg-white/[0.06] text-slate-200 hover:bg-white/[0.12]"}`}
         >
           {confirmDelete ? "Confirm delete" : "Delete"}
         </button>
       </header>
 
-      <div className="flex flex-col pt-[76px]">
+      <div className="pt-chrome flex flex-col">
         <div
           ref={boxRef}
           className={isFs ? "fixed inset-0 z-50 bg-black" : "relative w-full bg-black"}

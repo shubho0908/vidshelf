@@ -31,7 +31,7 @@ class MainActivity : TauriActivity() {
       return
     }
     wv.evaluateJavascript(
-      """(function(){ if (val h = location.hash; h === "" || h === "#" || h === "#/") { return "root"; } window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); return "nav"; })()"""
+      """(function(){ var h = location.hash; if (h === "" || h === "#" || h === "#/") { return "root"; } window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); return "nav"; })()"""
     ) { result ->
       if (result != null && result.contains("root")) {
         runOnUiThread { finishFromBack() }
