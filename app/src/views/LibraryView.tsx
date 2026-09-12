@@ -4,6 +4,7 @@ import { IS_WEB_BUILD, SYNC_URL } from "../config";
 import { getSyncConfig, hasCustomSyncConfig, setSyncConfig, lastSyncAt, syncNow, scheduleSync, pairStart, pairStatus, pairApprove, rotateKey, mintKey, type SyncResult } from "../lib/sync";
 import { parseLink } from "../lib/router";
 import { nav } from "../lib/route";
+import { focusFirst } from "../lib/focus";
 import { EntryThumb, KindBadge, Spinner } from "../components/bits";
 
 function Card({ entry }: { entry: Entry }) {
@@ -161,6 +162,7 @@ function LinkCode({ onDone, onBack }: { onDone: () => void; onBack: () => void }
     paste links this device to an existing shelf. */
 function Welcome({ onDone }: { onDone: () => void }) {
   const [view, setView] = useState<"menu" | "paste" | "link">("menu");
+  useEffect(() => { focusFirst(); }, []);
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -190,7 +192,7 @@ function Welcome({ onDone }: { onDone: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-9 bg-[#050507] px-6">
+    <div data-focus-scope className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-9 bg-[#050507] px-6">
       <div className="flex flex-col items-center gap-4 text-center">
         <img src="./icon.png" alt="VidShelf" className="h-16 w-16 rounded-2xl" />
         <h1 className="t-display text-white">Your videos, one shelf</h1>
@@ -322,7 +324,7 @@ function SyncModal({ onClose, onSynced, onUnlinked }: { onClose: () => void; onS
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5 backdrop-blur-sm" onClick={onClose}>
+    <div data-focus-scope className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5 backdrop-blur-sm" onClick={onClose}>
       <div className="flex w-full max-w-md flex-col gap-4 rounded-3xl border border-white/10 bg-[#141418] p-6" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-lg font-bold text-white">Cloud sync</h2>
         {needsKey ? (

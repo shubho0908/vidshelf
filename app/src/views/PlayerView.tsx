@@ -63,6 +63,8 @@ export default function PlayerView({ id, index }: { id: string; index: number })
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [isFs, setIsFs] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
+  const video: VideoItem | null = entry?.videos[index] ?? entry?.videos[0] ?? null;
+  const parsed0 = useMemo(() => (video ? parseLink(video.url) : null), [video]);
 
   useEffect(() => {
     const onFs = () => setIsFs(Boolean(document.fullscreenElement || (document as { webkitFullscreenElement?: Element }).webkitFullscreenElement));
@@ -90,6 +92,28 @@ export default function PlayerView({ id, index }: { id: string; index: number })
       window.removeEventListener("keydown", onKeyCapture, true);
     };
   }, []);
+
+  // TV remote on the OWN player (direct/HLS): focus the player box, then
+  // OK toggles play/pause, left/right seek 10s. Header buttons keep spatial nav.
+  const isNativePlayer = Boolean(parsed0?.kind === "direct" || parsed0?.kind === "hls");
+  useEffect(() => {
+    if (!isNativePlayer) return;
+    const onKey = (e: KeyboardEvent) => {
+      const box = boxRef.current;
+      const v = box?.querySelector("video");
+      if (!box || !v) return;
+      const boxFocused = box.classList.contains("tv-focus") || document.activeElement === box;
+      if (!boxFocused) return;
+      if (e.key === "ArrowLeft") { v.currentTime = Math.max(0, v.currentTime - 10); }
+      else if (e.key === "ArrowRight") { v.currentTime = Math.min(v.duration || Infinity, v.currentTime + 10); }
+      else if (e.key === "Enter") { if (v.paused) void v.play(); else v.pause(); }
+      else return;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [isNativePlayer]);
 
   const isFsRef = useRef(false);
   useEffect(() => { isFsRef.current = isFs; }, [isFs]);
@@ -141,8 +165,7 @@ export default function PlayerView({ id, index }: { id: string; index: number })
     }
   };
 
-  const video: VideoItem | null = entry?.videos[index] ?? entry?.videos[0] ?? null;
-  const parsed = useMemo(() => (video ? parseLink(video.url) : null), [video]);
+
 
   if (!entry) {
     return (
@@ -172,7 +195,7 @@ export default function PlayerView({ id, index }: { id: string; index: number })
           Back
         </button>
         <h1 className="t-title min-w-0 flex-1 truncate">{entry.title}</h1>
-        {parsed && <span className="hidden sm:block"><KindBadge kind={parsed.kind} label={parsed.label} /></span>}
+        {parsed0 && <span className="hidden sm:block"><KindBadge kind={parsed0.kind} label={parsed0.label} /></span>}
         <button data-focusable onClick={() => nav(`/edit/${entry.id}`)} className="shrink-0 rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2.5 text-[13px] font-medium text-slate-200 backdrop-blur-md hover:bg-white/[0.12] sm:px-4 sm:text-sm">
           Edit
         </button>
@@ -189,17 +212,18 @@ export default function PlayerView({ id, index }: { id: string; index: number })
       <div className="pt-chrome flex flex-col">
         <div
           ref={boxRef}
+          {...(isNativePlayer ? { "data-focusable": true, tabIndex: -1 } : {})}
           className={isFs ? "fixed inset-0 z-50 bg-black" : "relative w-full bg-black"}
           style={isFs ? undefined : { height: "min(62vh, 100vw * 9 / 16)" }}
           onDoubleClick={toggleFullscreen}
         >
-          {parsed ? <Player parsed={parsed} /> : null}
+          {parsed0 ? <Player parsed={parsed0} /> : null}
           <button
             data-focusable
             onClick={toggleFullscreen}
             title="Fullscreen (f)"
             aria-label="Toggle fullscreen"
-            className="absolute bottom-4 right-24 z-20 flex h-11 w-11 items-center justify-center rounded-xl border border-white/20 bg-black/60 text-white backdrop-blur-md transition hover:bg-black/80"
+            className="absolute right-20 top-4 z-20 flex h-11 w-11 items-center justify-center rounded-xl border border-white/20 bg-black/60 text-white backdrop-blur-md transition hover:bg-black/80"
           >
             {isFs ? (
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M9 4v4a1 1 0 0 1-1 1H4M20 15h-4a1 1 0 0 0-1 1v4M15 20v-4a1 1 0 0 1 1-1h4M4 9h4a1 1 0 0 0 1-1V4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
