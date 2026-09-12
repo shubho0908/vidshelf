@@ -1,0 +1,52 @@
+# Release builds: ONLY on version tags (git tag v1.0.0 && git push --tags).
+# This is the only workflow that touches a macOS runner (dmg) - macOS minutes
+# bill ~10x Linux, so keeping it tag-gated is what protects the free tier.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  webos-ipk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+        working-directory: app
+      - run: npm run build
+        working-directory: app
+      - run: npm install -g @webos-tools/cli
+      - run: ./scripts/package-webos.sh
+      - name: Upload ipk to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" build/*.ipk --clobber
+
+  macos-dmg:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npx --yes @tauri-apps/cli@latest build
+      - name: Upload dmg to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" src-tauri/target/release/bundle/dmg/*.dmg --clobber
