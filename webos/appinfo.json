@@ -1,0 +1,13 @@
+{
+  "id": "com.shubhojeet.vidshelf",
+  "version": "1.0.0",
+  "vendor": "Shubhojeet Bera",
+  "type": "web",
+  "main": "index.html",
+  "title": "VidShelf",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "resolution": "1920x1080",
+  "disableBackHistoryAPI": false,
+  "handlesRelaunch": false
+}
