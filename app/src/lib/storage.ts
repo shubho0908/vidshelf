@@ -122,6 +122,11 @@ export const library = {
     markDirty(id);
     return true;
   },
+  wipe(): void {
+    localStorage.removeItem(KEY);
+    localStorage.removeItem(TOMB_KEY);
+    localStorage.removeItem(DIRTY_KEY);
+  },
   exportJson(): string {
     return JSON.stringify(readAll(), null, 2);
   },

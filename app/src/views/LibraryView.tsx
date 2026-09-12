@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { library, type Entry } from "../lib/storage";
 import { IS_WEB_BUILD, SYNC_URL } from "../config";
-import { getSyncConfig, hasCustomSyncConfig, setSyncConfig, lastSyncAt, syncNow, scheduleSync, pairStart, pairStatus, pairApprove, rotateKey, mintKey, type SyncResult } from "../lib/sync";
+import { getSyncConfig, hasCustomSyncConfig, setSyncConfig, lastSyncAt, syncNow, scheduleSync, pairStart, pairStatus, pairApprove, rotateKey, mintKey, type SyncResult, unlinkDevice } from "../lib/sync";
 import { parseLink } from "../lib/router";
 import { nav } from "../lib/route";
 import { focusFirst } from "../lib/focus";
@@ -304,7 +304,7 @@ function SyncModal({ onClose, onSynced, onUnlinked }: { onClose: () => void; onS
   };
   const unlink = () => {
     if (!confirmUnlink) { setConfirmUnlink(true); return; }
-    setSyncConfig(null);
+    unlinkDevice();
     onUnlinked();
   };
   const signOutEverywhere = async () => {
@@ -430,7 +430,10 @@ export default function LibraryView() {
   }, [entries, query]);
 
   const hero = query ? null : filtered[0] ?? null;
-  const shelf = query ? filtered : filtered.slice(1);
+  // Grid always shows the full set: the hero is a featured presentation of
+  // filtered[0], not a removal from the library (slice(1) made the featured
+  // entry unreachable from the grid and left 1-entry shelves looking empty).
+  const shelf = filtered;
 
   const doExport = () => {
     const blob = new Blob([library.exportJson()], { type: "application/json" });
@@ -519,7 +522,7 @@ export default function LibraryView() {
         </div>
       )}
       {welcomeNeeded && <Welcome onDone={() => { localStorage.setItem("vidshelf.welcomeSkipped", "1"); setWelcomeNeeded(false); setEntries(library.list()); }} />}
-      {syncOpen && <SyncModal onClose={() => setSyncOpen(false)} onSynced={() => setEntries(library.list())} onUnlinked={() => { setSyncOpen(false); localStorage.removeItem("vidshelf.welcomeSkipped"); setWelcomeNeeded(true); }} />}
+      {syncOpen && <SyncModal onClose={() => setSyncOpen(false)} onSynced={() => setEntries(library.list())} onUnlinked={() => { setSyncOpen(false); setEntries([]); localStorage.removeItem("vidshelf.welcomeSkipped"); setWelcomeNeeded(true); }} />}
     </div>
   );
 }
