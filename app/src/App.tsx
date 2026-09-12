@@ -19,14 +19,16 @@ export default function App() {
     return () => clearTimeout(t);
   }, [route]);
 
+  let view: React.ReactNode;
   if (route.startsWith("/play/")) {
     const [, , id, idx] = route.split("/");
-    return <PlayerView id={id ?? ""} index={Math.max(0, parseInt(idx ?? "0", 10) || 0)} />;
+    view = <PlayerView id={id ?? ""} index={Math.max(0, parseInt(idx ?? "0", 10) || 0)} />;
   }
-  if (route.startsWith("/edit/")) {
+  else if (route.startsWith("/edit/")) {
     const id = route.split("/")[2] ?? "";
-    return <EntryFormView editId={id} />;
+    view = <EntryFormView editId={id} />;
   }
-  if (route === "/add") return <EntryFormView />;
-  return <LibraryView />;
+  else if (route === "/add") view = <EntryFormView />;
+  else view = <LibraryView />;
+  return <div key={route} className="view-enter h-full">{view}</div>;
 }

@@ -80,12 +80,12 @@ export default function PlayerView({ id, index }: { id: string; index: number })
   };
 
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-[1500px] flex-col gap-5 p-4 md:p-6">
-      <div className="flex flex-wrap items-center gap-2.5">
+    <div className="mx-auto flex min-h-full w-full max-w-[1500px] flex-col gap-5 p-4 pt-0 md:p-6 md:pt-0">
+      <div className="chrome sticky top-0 z-20 -mx-4 flex flex-wrap items-center gap-2.5 px-4 py-3.5 md:-mx-6 md:px-6">
         <button data-focusable onClick={() => goBack("/")} className="rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2 text-sm text-slate-300 hover:bg-white/[0.08]">
           Back
         </button>
-        <h1 className="min-w-0 flex-1 truncate text-lg font-bold tracking-tight">{entry.title}</h1>
+        <h1 className="heading min-w-0 flex-1 truncate text-lg font-bold">{entry.title}</h1>
         {parsed && <KindBadge kind={parsed.kind} label={parsed.label} />}
         <button data-focusable onClick={() => nav(`/edit/${entry.id}`)} className="rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2 text-sm text-slate-300 hover:bg-white/[0.08]">
           Edit

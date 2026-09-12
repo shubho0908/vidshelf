@@ -75,13 +75,13 @@ export default function LibraryView() {
   };
 
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-[1400px] flex-col gap-5 p-5 md:p-8">
-      <header className="flex flex-wrap items-center gap-3">
+    <div className="mx-auto flex min-h-full w-full max-w-[1400px] flex-col gap-5 p-5 pt-0 md:p-8 md:pt-0">
+      <header className="chrome sticky top-0 z-20 -mx-5 flex flex-wrap items-center gap-3 px-5 py-4 md:-mx-8 md:px-8">
         <div className="flex items-center gap-2.5">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M8 5.5v13l11-6.5-11-6.5z" /></svg>
           </div>
-          <h1 className="text-xl font-bold tracking-tight">VidShelf</h1>
+          <h1 className="heading text-xl font-bold">VidShelf</h1>
         </div>
         <div className="flex-1" />
         <input
