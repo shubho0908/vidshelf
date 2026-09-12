@@ -2,7 +2,7 @@
   "name": "vidshelf",
   "private": true,
   "scripts": {
-    "tauri": "tauri"
+    "tauri": "app/node_modules/.bin/tauri"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"
