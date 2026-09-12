@@ -7,11 +7,16 @@ import { SYNC_KEY, SYNC_URL } from "../config";
 import { allThumbIds, library, readDirty, readTombstones, writeDirty, type Entry } from "./storage";
 import {
   clearThumbDeletes, clearThumbDirty, evictThumbCache, getThumb, putThumb,
-  readThumbDeletes, readThumbDirty, sweepLocalOrphans,
+  readThumbDeletes, readThumbDirty, sweepLocalOrphans, wipeThumbs,
 } from "./thumbstore";
 
 const CFG_KEY = "vidshelf.sync.cfg.v1";
 const META_KEY = "vidshelf.sync.meta.v1";
+// Set by "Unlink this device": native builds ship a baked SYNC_KEY for
+// zero-prompt onboarding, so without this flag getSyncConfig() would silently
+// re-attach the default shelf right after an explicit unlink. Any explicit
+// attach (create / link / paste key) clears it via setSyncConfig().
+const UNLINKED_KEY = "vidshelf.unlinked.v1";
 
 export interface SyncConfig {
   url: string; // worker base URL, e.g. https://vidshelf-sync.<sub>.workers.dev
@@ -23,6 +28,7 @@ export function getSyncConfig(): SyncConfig | null {
     const c = JSON.parse(localStorage.getItem(CFG_KEY) ?? "null") as SyncConfig | null;
     if (c && c.url && c.key) return c; // user override wins
   } catch { /* fall through to defaults */ }
+  if (localStorage.getItem(UNLINKED_KEY) === "1") return null; // explicit unlink beats the baked key
   if (!SYNC_KEY) return null; // web build ships without a key - user enters it once
   return { url: SYNC_URL, key: SYNC_KEY };
 }
@@ -30,8 +36,23 @@ export function hasCustomSyncConfig(): boolean {
   return localStorage.getItem(CFG_KEY) !== null;
 }
 export function setSyncConfig(c: SyncConfig | null): void {
-  if (c) localStorage.setItem(CFG_KEY, JSON.stringify(c));
-  else localStorage.removeItem(CFG_KEY);
+  if (c) {
+    localStorage.setItem(CFG_KEY, JSON.stringify(c));
+    localStorage.removeItem(UNLINKED_KEY); // explicit attach clears the unlink opt-out
+  } else localStorage.removeItem(CFG_KEY);
+}
+
+/** "Unlink this device" - actually forget the shelf. Wipes the sync config,
+ *  the local library, tombstones, dirty flags, sync meta and the thumbnail
+ *  store, and blocks the baked-key fallback. Without the wipe, the old
+ *  library survived in localStorage and seeded the NEXT shelf this device
+ *  created or joined (old videos "reappearing" on a fresh shelf). */
+export function unlinkDevice(): void {
+  setSyncConfig(null);
+  localStorage.setItem(UNLINKED_KEY, "1");
+  library.wipe();
+  localStorage.removeItem(META_KEY);
+  void wipeThumbs();
 }
 export function lastSyncAt(): number {
   try {

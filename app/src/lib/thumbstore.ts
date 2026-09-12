@@ -187,3 +187,18 @@ export async function sweepLocalOrphans(referenced: Set<string>): Promise<number
 export function newThumbId(): string {
   return "t_" + (crypto.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`);
 }
+
+/** Full local wipe for "Unlink this device": queues + IndexedDB blob store. */
+export async function wipeThumbs(): Promise<void> {
+  localStorage.removeItem(DIRTY_KEY);
+  localStorage.removeItem(DEL_KEY);
+  if (dbPromise) {
+    try { (await dbPromise).close(); } catch { /* already closed */ }
+    dbPromise = null;
+  }
+  if (typeof indexedDB === "undefined") return;
+  await new Promise<void>((resolve) => {
+    const req = indexedDB.deleteDatabase(DB_NAME);
+    req.onsuccess = req.onerror = req.onblocked = () => resolve();
+  });
+}
