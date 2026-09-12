@@ -201,9 +201,7 @@ export default function LibraryView() {
       {/* Floating chrome */}
       <header className="chrome tv-safe fixed inset-x-0 top-0 z-30 flex flex-wrap items-center gap-2.5 px-4 py-3.5 sm:gap-3 sm:px-5 md:px-10">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="black"><path d="M8 5.5v13l11-6.5-11-6.5z" /></svg>
-          </div>
+          <img src="./icon.png" alt="VidShelf" className="h-9 w-9 rounded-xl" />
           <h1 className="t-title hidden text-white min-[420px]:block">VidShelf</h1>
         </div>
         <div className="flex-1" />
