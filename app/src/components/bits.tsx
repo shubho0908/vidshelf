@@ -1,5 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { LinkKind } from "../lib/router";
+import type { Entry, VideoItem } from "../lib/storage";
+import { ensureThumbLocal } from "../lib/sync";
+import { thumbUrl } from "../lib/thumbstore";
+import { thumbnailForUrl } from "../lib/thumbnails";
 
 const KIND_STYLES: Record<string, string> = {
   youtube: "bg-red-500/15 text-red-300 border-red-500/30",
@@ -40,6 +44,41 @@ export function Thumb({ src, title }: { src: string | null; title: string }) {
       className="h-full w-full object-cover"
     />
   );
+}
+
+/** Blob URL for a custom thumbnail: local IDB first, cloud fetch on miss. */
+export function useCustomThumb(thumbId?: string, thumbV?: number): string | null {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    setUrl(null);
+    if (!thumbId) return;
+    void (async () => {
+      let u = await thumbUrl(thumbId).catch(() => null);
+      if (!u) {
+        const ok = await ensureThumbLocal(thumbId, thumbV ?? 1).catch(() => false);
+        if (ok) u = await thumbUrl(thumbId).catch(() => null);
+      }
+      if (alive) setUrl(u);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [thumbId, thumbV]);
+  return url;
+}
+
+/** Entry thumbnail: custom upload wins, else auto-fetch from the first link. */
+export function EntryThumb({ entry, title }: { entry: Entry; title: string }) {
+  const custom = useCustomThumb(entry.thumbId, entry.thumbV);
+  const auto = thumbnailForUrl(entry.videos[0]?.url ?? "");
+  return <Thumb src={custom ?? auto} title={title} />;
+}
+
+/** Video-row thumbnail: custom upload wins, else auto-fetch from the link. */
+export function VideoThumb({ video }: { video: VideoItem }) {
+  const custom = useCustomThumb(video.thumbId, video.thumbV);
+  return <Thumb src={custom ?? thumbnailForUrl(video.url)} title={video.title ?? ""} />;
 }
 
 export function Spinner() {

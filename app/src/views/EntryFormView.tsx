@@ -1,10 +1,110 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { scheduleSync } from "../lib/sync";
-import { library, type VideoItem } from "../lib/storage";
+import { entryThumbIds, library, type VideoItem } from "../lib/storage";
 import { parseLink } from "../lib/router";
 import { fetchRemoteTitle, thumbnailForUrl } from "../lib/thumbnails";
+import { canUploadThumbs, makeThumb } from "../lib/thumbmake";
+import { markThumbDirty, newThumbId, putThumb, retireThumb } from "../lib/thumbstore";
 import { goBack } from "../lib/route";
-import { KindBadge, Spinner, Thumb } from "../components/bits";
+import { KindBadge, Spinner, Thumb, useCustomThumb } from "../components/bits";
+
+interface ThumbSel {
+  id: string;
+  v: number;
+}
+
+/** 16:9 custom-thumbnail picker. Upload: strict-validate, encode, store
+ *  locally (atomic), queue cloud upload. Replaced/removed ids are handed back
+ *  via onReplace so the form can retire them on save (committed) or right away
+ *  (staged this session). Hidden entirely on webOS (no TV file picker). */
+function ThumbField({
+  value,
+  autoSrc,
+  compact,
+  onPick,
+  onStage,
+  onReplace,
+}: {
+  value: ThumbSel | null;
+  autoSrc: string | null;
+  compact?: boolean;
+  onPick: (v: ThumbSel | null) => void;
+  onStage: (id: string) => void;
+  onReplace: (oldId: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const custom = useCustomThumb(value?.id, value?.v);
+  const shown = custom ?? autoSrc;
+
+  const pick = async (f: File) => {
+    setErr("");
+    setBusy(true);
+    try {
+      const made = await makeThumb(f);
+      const id = newThumbId();
+      const v = (value?.v ?? 0) + 1;
+      await putThumb({ id, blob: made.blob, v, mime: made.mime });
+      markThumbDirty(id);
+      onStage(id);
+      if (value) onReplace(value.id);
+      onPick({ id, v });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not use that image.");
+    } finally {
+      setBusy(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  };
+
+  const remove = () => {
+    if (value) onReplace(value.id);
+    onPick(null);
+    setErr("");
+  };
+
+  return (
+    <div className={`flex ${compact ? "flex-row items-center gap-3" : "flex-col gap-3"}`}>
+      <div className={`${compact ? "h-12 w-[84px]" : "aspect-video w-full max-w-xs"} shrink-0 overflow-hidden rounded-xl border border-white/[0.07] bg-white/[0.03]`}>
+        <Thumb src={shown} title="" />
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            data-focusable
+            type="button"
+            disabled={busy}
+            onClick={() => inputRef.current?.click()}
+            className="rounded-xl border border-white/15 bg-white/[0.06] px-4 py-2 text-[13px] font-medium text-slate-200 hover:bg-white/[0.12] disabled:opacity-50"
+          >
+            {busy ? <Spinner /> : value ? "Replace image" : "Upload image"}
+          </button>
+          {value && (
+            <button
+              data-focusable
+              type="button"
+              onClick={remove}
+              className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-[13px] text-slate-400 hover:bg-white/[0.08]"
+            >
+              Remove
+            </button>
+          )}
+          {!compact && <span className="t-small text-slate-500">Strictly 16:9, up to 1MB. Stored as a small 1280x720 image.</span>}
+        </div>
+        {value && <div className="t-small text-emerald-300/80">Custom thumbnail set - syncs to your other devices.</div>}
+        {err && <div className="t-small text-red-300">{err}</div>}
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => e.target.files?.[0] && void pick(e.target.files[0])}
+      />
+    </div>
+  );
+}
 
 function LinkHint({ url }: { url: string }) {
   const parsed = useMemo(() => parseLink(url), [url]);
@@ -36,6 +136,19 @@ export default function EntryFormView({ editId }: { editId?: string }) {
   const [videos, setVideos] = useState<VideoItem[]>(existing?.videos.length ? existing.videos : [library.makeVideo("")]);
   const [fetching, setFetching] = useState(false);
   const [error, setError] = useState("");
+  const [entryThumb, setEntryThumb] = useState<ThumbSel | null>(
+    existing?.thumbId ? { id: existing.thumbId, v: existing.thumbV ?? 1 } : null
+  );
+  // Thumbnail lifecycle tracking: ids created this session retire freely;
+  // ids committed on the entry retire only when the save lands.
+  const staged = useRef(new Set<string>());
+  const retireLater = useRef<string[]>([]);
+  const uploadsAllowed = canUploadThumbs();
+  const stageId = (id: string) => staged.current.add(id);
+  const replaced = (oldId: string) => {
+    if (staged.current.has(oldId)) void retireThumb(oldId);
+    else retireLater.current.push(oldId);
+  };
 
   const setUrl = (i: number, url: string) => setVideos((v) => v.map((it, j) => (j === i ? { ...it, url } : it)));
 
@@ -57,9 +170,33 @@ export default function EntryFormView({ editId }: { editId?: string }) {
       if (p.kind === "unknown" || p.kind === "ott") return setError(`"${v.url.slice(0, 60)}..." cannot be embedded: ${p.blockReason ?? p.label}`);
     }
     const finalVideos = type === "video" ? usable.slice(0, 1) : usable;
-    if (existing) library.update(existing.id, { type, title: title.trim(), description: description.trim(), videos: finalVideos });
-    else library.create({ type, title: title.trim(), description: description.trim(), videos: finalVideos });
+    const patch = {
+      type,
+      title: title.trim(),
+      description: description.trim(),
+      videos: finalVideos,
+      thumbId: entryThumb?.id,
+      thumbV: entryThumb?.v,
+    };
+    if (existing) library.update(existing.id, patch);
+    else library.create(patch);
+    // Retire thumbnails that are no longer referenced by what was saved.
+    const referenced = new Set<string>([
+      ...(entryThumb ? [entryThumb.id] : []),
+      ...finalVideos.map((v) => v.thumbId).filter((x): x is string => !!x),
+    ]);
+    for (const id of staged.current) if (!referenced.has(id)) void retireThumb(id);
+    for (const id of retireLater.current) if (!referenced.has(id)) void retireThumb(id);
+    staged.current.clear();
+    retireLater.current = [];
     scheduleSync();
+    goBack("/");
+  };
+
+  const cancel = () => {
+    // Keep only what the saved entry still references; drop the rest locally.
+    const keep = new Set(existing ? entryThumbIds(existing) : []);
+    for (const id of staged.current) if (!keep.has(id)) void retireThumb(id);
     goBack("/");
   };
 
@@ -68,7 +205,7 @@ export default function EntryFormView({ editId }: { editId?: string }) {
   return (
     <div className="flex min-h-full w-full flex-col">
       <header className="chrome tv-safe fixed inset-x-0 top-0 z-30 flex flex-wrap items-center gap-2.5 px-4 py-3.5 sm:gap-3 sm:px-5 md:px-10">
-        <button data-focusable onClick={() => goBack("/")} className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-2.5 text-sm font-medium text-slate-200 backdrop-blur-md hover:bg-white/[0.12]">
+        <button data-focusable onClick={cancel} className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-2.5 text-sm font-medium text-slate-200 backdrop-blur-md hover:bg-white/[0.12]">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
           Back
         </button>
@@ -115,6 +252,21 @@ export default function EntryFormView({ editId }: { editId?: string }) {
           <textarea data-focusable value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="Anything worth remembering about it" className={inputCls} />
         </label>
 
+        <div className="flex flex-col gap-2.5">
+          <span className="t-eyebrow">Custom thumbnail (optional)</span>
+          {uploadsAllowed ? (
+            <ThumbField
+              value={entryThumb}
+              autoSrc={thumbnailForUrl(videos[0]?.url ?? "")}
+              onPick={setEntryThumb}
+              onStage={stageId}
+              onReplace={replaced}
+            />
+          ) : (
+            <p className="t-small text-slate-500">Add custom thumbnails from your Mac or phone - they sync to this TV automatically.</p>
+          )}
+        </div>
+
         <div className="flex flex-col gap-3">
           <span className="t-eyebrow">{type === "video" ? "Link" : "Links"}</span>
           {videos.map((v, i) => (
@@ -134,6 +286,18 @@ export default function EntryFormView({ editId }: { editId?: string }) {
                 )}
               </div>
               <LinkHint url={v.url} />
+              {type === "playlist" && uploadsAllowed && (
+                <ThumbField
+                  compact
+                  value={v.thumbId ? { id: v.thumbId, v: v.thumbV ?? 1 } : null}
+                  autoSrc={thumbnailForUrl(v.url)}
+                  onPick={(sel) =>
+                    setVideos((arr) => arr.map((it, j) => (j === i ? { ...it, thumbId: sel?.id, thumbV: sel?.v } : it)))
+                  }
+                  onStage={stageId}
+                  onReplace={replaced}
+                />
+              )}
             </div>
           ))}
           {type === "playlist" && (
@@ -149,7 +313,7 @@ export default function EntryFormView({ editId }: { editId?: string }) {
           <button data-focusable onClick={save} className="bright rounded-2xl bg-white px-8 py-3.5 text-[15px] font-bold text-black">
             {existing ? "Save changes" : "Add to shelf"}
           </button>
-          <button data-focusable onClick={() => goBack("/")} className="rounded-2xl border border-white/10 bg-white/[0.05] px-6 py-3.5 text-[15px] font-medium text-slate-200 hover:bg-white/[0.1]">
+          <button data-focusable onClick={cancel} className="rounded-2xl border border-white/10 bg-white/[0.05] px-6 py-3.5 text-[15px] font-medium text-slate-200 hover:bg-white/[0.1]">
             Cancel
           </button>
         </div>

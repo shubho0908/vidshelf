@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { scheduleSync } from "../lib/sync";
-import { library, type Entry, type VideoItem } from "../lib/storage";
+import { entryThumbIds, library, type Entry, type VideoItem } from "../lib/storage";
 import { parseLink, type ParsedLink } from "../lib/router";
-import { thumbnailForUrl } from "../lib/thumbnails";
+import { retireThumb } from "../lib/thumbstore";
 import { goBack, nav } from "../lib/route";
-import { KindBadge, Thumb } from "../components/bits";
+import { KindBadge, VideoThumb } from "../components/bits";
 
 function HlsVideo({ src }: { src: string }) {
   const ref = useRef<HTMLVideoElement>(null);
@@ -156,6 +156,9 @@ export default function PlayerView({ id, index }: { id: string; index: number })
   }
 
   const doDelete = () => {
+    // Cascade: retire every custom thumbnail this entry references (local
+    // purge now, remote delete drains on next sync).
+    for (const id of entryThumbIds(entry)) void retireThumb(id);
     library.remove(entry.id);
     scheduleSync();
     nav("/");
@@ -230,7 +233,7 @@ export default function PlayerView({ id, index }: { id: string; index: number })
                       className={`flex items-center gap-3.5 rounded-2xl border p-2.5 text-left transition-colors ${active ? "border-white/40 bg-white/[0.1]" : "border-white/[0.07] bg-white/[0.03] hover:bg-white/[0.07]"}`}
                     >
                       <div className="h-14 w-24 shrink-0 overflow-hidden rounded-xl bg-black/60">
-                        <Thumb src={thumbnailForUrl(v.url)} title={v.title ?? ""} />
+                        <VideoThumb video={v} />
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="line-clamp-1 text-[14px] font-semibold text-slate-100">{v.title || `${p.label} ${i + 1}`}</div>
