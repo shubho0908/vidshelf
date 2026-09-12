@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { scheduleSync } from "../lib/sync";
 import { library, type VideoItem } from "../lib/storage";
 import { parseLink } from "../lib/router";
 import { fetchRemoteTitle, thumbnailForUrl } from "../lib/thumbnails";
@@ -58,6 +59,7 @@ export default function EntryFormView({ editId }: { editId?: string }) {
     const finalVideos = type === "video" ? usable.slice(0, 1) : usable;
     if (existing) library.update(existing.id, { type, title: title.trim(), description: description.trim(), videos: finalVideos });
     else library.create({ type, title: title.trim(), description: description.trim(), videos: finalVideos });
+    scheduleSync();
     goBack("/");
   };
 

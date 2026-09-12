@@ -1,5 +1,7 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { library, type Entry } from "../lib/storage";
+import { SYNC_URL } from "../config";
+import { getSyncConfig, setSyncConfig, lastSyncAt, syncNow, scheduleSync, type SyncResult } from "../lib/sync";
 import { parseLink } from "../lib/router";
 import { thumbnailForUrl } from "../lib/thumbnails";
 import { nav } from "../lib/route";
@@ -85,9 +87,74 @@ function Hero({ entry }: { entry: Entry }) {
   );
 }
 
+function timeAgo(ts: number): string {
+  if (!ts) return "never";
+  const m = Math.round((Date.now() - ts) / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min ago`;
+  return `${Math.round(m / 60)} h ago`;
+}
+
+function SyncModal({ onClose, onSynced }: { onClose: () => void; onSynced: () => void }) {
+  const cfg = getSyncConfig();
+  const [url, setUrl] = useState(cfg?.url ?? SYNC_URL);
+  const [key, setKey] = useState(cfg?.key ?? "");
+  const [status, setStatus] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+
+  const describe = (r: SyncResult) =>
+    r.ok ? `Synced - pushed ${r.pushed}, pulled ${r.pulled}.`
+    : r.reason === "auth" ? "Wrong sync key." : "Could not reach the sync server.";
+
+  const save = () => {
+    setSyncConfig({ url: url.trim().replace(/\/+$/, ""), key: key.trim() });
+    setStatus("Saved. Last synced " + timeAgo(lastSyncAt()) + ".");
+  };
+  const run = async () => {
+    setBusy(true);
+    setStatus("Syncing...");
+    const r = await syncNow();
+    setBusy(false);
+    setStatus(describe(r));
+    if (r.ok) onSynced();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5 backdrop-blur-sm" onClick={onClose}>
+      <div className="flex w-full max-w-md flex-col gap-4 rounded-3xl border border-white/10 bg-[#141418] p-6" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-lg font-bold text-white">Cloud sync</h2>
+        <p className="t-small text-slate-400">
+          One sync key keeps TV, Mac and phone on the same shelf. Set it up on your phone first, then enter the same key here.
+        </p>
+        <label className="t-eyebrow">Worker URL</label>
+        <input data-focusable value={url} onChange={(e) => setUrl(e.target.value)}
+          className="rounded-xl border border-white/10 bg-white/[0.06] px-4 py-2.5 font-mono text-xs text-slate-200 outline-none focus:border-white/40" />
+        <label className="t-eyebrow">Sync key</label>
+        <input data-focusable value={key} onChange={(e) => setKey(e.target.value)} placeholder="Paste the sync key"
+          className="rounded-xl border border-white/10 bg-white/[0.06] px-4 py-2.5 text-sm text-slate-200 outline-none focus:border-white/40" />
+        {status && <p className="t-small text-slate-300">{status}</p>}
+        <div className="flex items-center gap-3">
+          <button data-focusable onClick={save} className="rounded-xl border border-white/15 bg-white/[0.08] px-5 py-2.5 text-sm font-semibold text-white">Save</button>
+          <button data-focusable disabled={busy} onClick={() => { save(); void run(); }}
+            className="bright rounded-xl bg-white px-5 py-2.5 text-sm font-bold text-black disabled:opacity-50">Sync now</button>
+          <button data-focusable onClick={onClose} className="rounded-xl px-4 py-2.5 text-sm text-slate-400">Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function LibraryView() {
   const [entries, setEntries] = useState<Entry[]>(() => library.list());
   const [query, setQuery] = useState("");
+  const [syncOpen, setSyncOpen] = useState(false);
+  const synced = getSyncConfig() !== null;
+
+  // Pull once per app open - the only automatic D1 read.
+  useEffect(() => {
+    if (!getSyncConfig()) return;
+    void syncNow().then((r) => { if (r.ok) setEntries(library.list()); });
+  }, []);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const filtered = useMemo(() => {
@@ -112,6 +179,7 @@ export default function LibraryView() {
     try {
       library.importJson(await f.text());
       setEntries(library.list());
+      scheduleSync();
     } catch {
       alert("Could not import: not a valid VidShelf backup.");
     }
@@ -142,6 +210,10 @@ export default function LibraryView() {
           Import
         </button>
         <input ref={fileRef} type="file" accept="application/json" className="hidden" onChange={(e) => e.target.files?.[0] && doImport(e.target.files[0])} />
+        <button data-focusable onClick={() => setSyncOpen(true)} title="Cloud sync"
+          className={"rounded-2xl border px-3.5 py-2.5 text-sm backdrop-blur-md " + (synced ? "border-emerald-400/30 bg-emerald-400/[0.08] text-emerald-300" : "border-white/10 bg-white/[0.06] text-slate-200")}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.5 19a4.5 4.5 0 1 0 0-9 6 6 0 0 0-11.5 1.5A4 4 0 0 0 7 19h10.5z"/></svg>
+        </button>
         <button data-focusable onClick={() => nav("/add")} className="bright rounded-2xl bg-white px-5 py-2.5 text-sm font-bold text-black">
           + Add
         </button>
@@ -182,6 +254,7 @@ export default function LibraryView() {
           )}
         </div>
       )}
+      {syncOpen && <SyncModal onClose={() => setSyncOpen(false)} onSynced={() => setEntries(library.list())} />}
     </div>
   );
 }

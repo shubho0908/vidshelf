@@ -1,0 +1,8 @@
+name = "vidshelf-sync"
+main = "index.js"
+compatibility_date = "2026-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "vidshelf"
+database_id = "DATABASE_ID_PLACEHOLDER"

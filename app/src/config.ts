@@ -4,3 +4,6 @@
 // The hosted player page runs on a real HTTPS origin and embeds the
 // official IFrame Player API there instead.
 export const YT_PLAYER_BASE = "https://shubho0908.github.io/vidshelf-player/";
+
+// Sync worker base URL (deployed via .github/workflows/sync.yml).
+export const SYNC_URL = "https://vidshelf-sync.shubhojeet.workers.dev";
