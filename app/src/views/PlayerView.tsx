@@ -69,38 +69,75 @@ export default function PlayerView({ id, index }: { id: string; index: number })
     document.addEventListener("fullscreenchange", onFs);
     document.addEventListener("webkitfullscreenchange", onFs as EventListener);
     const onKey = (e: KeyboardEvent) => {
-      if ((e.key === "f" || e.key === "F") && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) toggleFullscreen();
+      if (e.key === "f" || e.key === "F") {
+        if (!(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) toggleFullscreen();
+      }
     };
     window.addEventListener("keydown", onKey);
+    // Escape exits window-level fullscreen without triggering SPA "back"
+    const onKeyCapture = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isFsRef.current) {
+        e.stopPropagation();
+        e.preventDefault();
+        toggleFullscreen();
+      }
+    };
+    window.addEventListener("keydown", onKeyCapture, true);
     return () => {
       document.removeEventListener("fullscreenchange", onFs);
       document.removeEventListener("webkitfullscreenchange", onFs as EventListener);
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onKeyCapture, true);
     };
   }, []);
+
+  const isFsRef = useRef(false);
+  useEffect(() => { isFsRef.current = isFs; }, [isFs]);
+
+  const winFsRef = useRef(false);
 
   const toggleFullscreen = async () => {
     const el = boxRef.current;
     const doc = document as Document & { webkitExitFullscreen?: () => void; webkitFullscreenElement?: Element };
-    if (document.fullscreenElement || doc.webkitFullscreenElement) {
-      if (document.exitFullscreen) await document.exitFullscreen().catch(() => {});
-      else doc.webkitExitFullscreen?.();
+    const inElementFs = Boolean(document.fullscreenElement || doc.webkitFullscreenElement);
+
+    if (inElementFs || winFsRef.current) {
+      if (inElementFs) {
+        if (document.exitFullscreen) await document.exitFullscreen().catch(() => {});
+        else doc.webkitExitFullscreen?.();
+      } else {
+        try {
+          const { getCurrentWindow } = await import("@tauri-apps/api/window");
+          await getCurrentWindow().setFullscreen(false);
+        } catch { /* ignore */ }
+        winFsRef.current = false;
+        setIsFs(false);
+      }
       return;
     }
-    const req = el as (HTMLDivElement & { webkitRequestFullscreen?: () => Promise<void> | void }) | null;
-    try {
-      if (req?.requestFullscreen) await req.requestFullscreen();
-      else if (req?.webkitRequestFullscreen) await req.webkitRequestFullscreen();
-      else throw new Error("no element fullscreen");
-    } catch {
-      // Tauri/WKWebView fallback: fullscreen the whole app window
-      const tauriWin = (window as { __TAURI__?: { window?: { getCurrentWindow?: () => { setFullscreen: (v: boolean) => Promise<void>; isFullscreen: () => Promise<boolean> } } } }).__TAURI__?.window;
-      if (tauriWin?.getCurrentWindow) {
-        const w = tauriWin.getCurrentWindow();
-        const cur = await w.isFullscreen().catch(() => false);
-        await w.setFullscreen(!cur).catch(() => {});
-        setIsFs(!cur);
-      }
+
+    // Path 1: element fullscreen (works on Chromium/Android WebView, webOS, browsers).
+    // WKWebView on macOS can hang the promise - race it with a timeout.
+    if (el) {
+      const req = el as HTMLDivElement & { webkitRequestFullscreen?: () => Promise<void> | void };
+      try {
+        const call = req.requestFullscreen ? req.requestFullscreen() : req.webkitRequestFullscreen?.();
+        await Promise.race([
+          Promise.resolve(call),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("fullscreen hang")), 900)),
+        ]);
+      } catch { /* fall through to window fullscreen */ }
+      if (document.fullscreenElement || doc.webkitFullscreenElement) return; // fullscreenchange updates state
+    }
+
+    // Path 2: Tauri native window fullscreen (macOS WKWebView fallback).
+    if ((window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        await getCurrentWindow().setFullscreen(true);
+        winFsRef.current = true;
+        setIsFs(true);
+      } catch { /* leave inline */ }
     }
   };
 
@@ -149,8 +186,8 @@ export default function PlayerView({ id, index }: { id: string; index: number })
       <div className="flex flex-col pt-[76px]">
         <div
           ref={boxRef}
-          className="relative w-full bg-black"
-          style={{ height: isFs ? "100%" : "min(62vh, 100vw * 9 / 16)" }}
+          className={isFs ? "fixed inset-0 z-50 bg-black" : "relative w-full bg-black"}
+          style={isFs ? undefined : { height: "min(62vh, 100vw * 9 / 16)" }}
           onDoubleClick={toggleFullscreen}
         >
           {parsed ? <Player parsed={parsed} /> : null}
