@@ -1,36 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { scheduleSync } from "../lib/sync";
+import { getSyncConfig, scheduleSync } from "../lib/sync";
+import { SYNC_URL } from "../config";
 import { entryThumbIds, library, type Entry, type VideoItem } from "../lib/storage";
-import { parseLink, type ParsedLink } from "../lib/router";
+import { driveStreamUrl, parseLink, type ParsedLink } from "../lib/router";
 import { retireThumb } from "../lib/thumbstore";
 import { goBack, nav } from "../lib/route";
 import { KindBadge, VideoThumb } from "../components/bits";
+import OwnPlayer from "../components/OwnPlayer";
 
-function HlsVideo({ src }: { src: string }) {
-  const ref = useRef<HTMLVideoElement>(null);
-  useEffect(() => {
-    const video = ref.current;
-    if (!video) return;
-    if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      video.src = src;
-      return;
-    }
-    let destroy: (() => void) | undefined;
-    import("hls.js").then(({ default: Hls }) => {
-      if (Hls.isSupported() && ref.current) {
-        const hls = new Hls({ enableWorker: true });
-        hls.loadSource(src);
-        hls.attachMedia(ref.current);
-        destroy = () => hls.destroy();
-      }
-    });
-    return () => destroy?.();
-  }, [src]);
-  return <video ref={ref} controls autoPlay className="h-full w-full bg-black" />;
-}
 
-function Player({ parsed }: { parsed: ParsedLink }) {
-  if (parsed.kind === "youtube" || parsed.kind === "drive") {
+function Player({ parsed, driveFallback, onDriveFatal, onFullscreen, isFs }: {
+  parsed: ParsedLink;
+  driveFallback: boolean;
+  onDriveFatal: () => void;
+  onFullscreen: () => void;
+  isFs: boolean;
+}) {
+  if (parsed.kind === "youtube") {
     return (
       <iframe
         src={parsed.playUrl ?? undefined}
@@ -41,8 +27,25 @@ function Player({ parsed }: { parsed: ParsedLink }) {
       />
     );
   }
-  if (parsed.kind === "hls") return <HlsVideo src={parsed.playUrl!} />;
-  if (parsed.kind === "direct") return <video src={parsed.playUrl!} controls autoPlay className="h-full w-full bg-black" />;
+  // Drive plays in OUR player (original-quality direct stream, remote-friendly).
+  // The iframe survives only as the automatic fallback if the stream fails.
+  if (parsed.kind === "drive") {
+    if (driveFallback || !parsed.fileId) {
+      return (
+        <iframe
+          src={parsed.playUrl ?? undefined}
+          title={parsed.label}
+          className="h-full w-full border-0 bg-black"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+          allowFullScreen
+        />
+      );
+    }
+    const base = getSyncConfig()?.url || SYNC_URL;
+    return <OwnPlayer src={driveStreamUrl(parsed.fileId, base)} cors onFatalError={onDriveFatal} onFullscreen={onFullscreen} isFs={isFs} />;
+  }
+  if (parsed.kind === "hls") return <OwnPlayer src={parsed.playUrl!} hls onFullscreen={onFullscreen} isFs={isFs} />;
+  if (parsed.kind === "direct") return <OwnPlayer src={parsed.playUrl!} onFullscreen={onFullscreen} isFs={isFs} />;
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-5 bg-gradient-to-b from-[#101018] to-black p-8 text-center">
       <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05]">
@@ -62,6 +65,7 @@ export default function PlayerView({ id, index }: { id: string; index: number })
   const [entry] = useState<Entry | null>(() => library.get(id));
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [isFs, setIsFs] = useState(false);
+  const [driveFallback, setDriveFallback] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
   const video: VideoItem | null = entry?.videos[index] ?? entry?.videos[0] ?? null;
   const parsed0 = useMemo(() => (video ? parseLink(video.url) : null), [video]);
@@ -93,11 +97,12 @@ export default function PlayerView({ id, index }: { id: string; index: number })
     };
   }, []);
 
-  // TV remote on the OWN player (direct/HLS): focus the player box, then
-  // OK toggles play/pause, left/right seek 10s. Header buttons keep spatial nav.
-  const isNativePlayer = Boolean(parsed0?.kind === "direct" || parsed0?.kind === "hls");
+  // TV remote on the OWN player (direct/HLS/Drive stream): focus the player
+  // box, then OK toggles play/pause, left/right seek 10s, up/down volume.
+  // The control bar stays spatial-nav reachable on its own.
+  const useOwn = Boolean(parsed0 && parsed0.kind !== "youtube" && parsed0.kind !== "ott" && parsed0.kind !== "unknown" && !(parsed0.kind === "drive" && driveFallback));
   useEffect(() => {
-    if (!isNativePlayer) return;
+    if (!useOwn) return;
     const onKey = (e: KeyboardEvent) => {
       const box = boxRef.current;
       const v = box?.querySelector("video");
@@ -106,6 +111,8 @@ export default function PlayerView({ id, index }: { id: string; index: number })
       if (!boxFocused) return;
       if (e.key === "ArrowLeft") { v.currentTime = Math.max(0, v.currentTime - 10); }
       else if (e.key === "ArrowRight") { v.currentTime = Math.min(v.duration || Infinity, v.currentTime + 10); }
+      else if (e.key === "ArrowUp") { v.muted = false; v.volume = Math.min(1, v.volume + 0.1); }
+      else if (e.key === "ArrowDown") { v.volume = Math.max(0, v.volume - 0.1); }
       else if (e.key === "Enter") { if (v.paused) void v.play(); else v.pause(); }
       else return;
       e.preventDefault();
@@ -113,7 +120,7 @@ export default function PlayerView({ id, index }: { id: string; index: number })
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [isNativePlayer]);
+  }, [useOwn]);
 
   const isFsRef = useRef(false);
   useEffect(() => { isFsRef.current = isFs; }, [isFs]);
@@ -212,12 +219,21 @@ export default function PlayerView({ id, index }: { id: string; index: number })
       <div className="pt-chrome flex flex-col">
         <div
           ref={boxRef}
-          {...(isNativePlayer ? { "data-focusable": true, tabIndex: -1 } : {})}
+          {...(useOwn ? { "data-focusable": true, tabIndex: -1 } : {})}
           className={isFs ? "fixed inset-0 z-50 bg-black" : "relative w-full bg-black"}
           style={isFs ? undefined : { height: "min(62vh, 100vw * 9 / 16)" }}
           onDoubleClick={toggleFullscreen}
         >
-          {parsed0 ? <Player parsed={parsed0} /> : null}
+          {parsed0 ? (
+            <Player
+              parsed={parsed0}
+              driveFallback={driveFallback}
+              onDriveFatal={() => setDriveFallback(true)}
+              onFullscreen={() => void toggleFullscreen()}
+              isFs={isFs}
+            />
+          ) : null}
+          {!useOwn && (
           <button
             data-focusable
             onClick={toggleFullscreen}
@@ -231,6 +247,7 @@ export default function PlayerView({ id, index }: { id: string; index: number })
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
             )}
           </button>
+          )}
         </div>
 
         <div className="tv-safe flex flex-col gap-8 px-5 py-8 md:px-10 xl:flex-row">
