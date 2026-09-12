@@ -6,4 +6,4 @@
 export const YT_PLAYER_BASE = "https://shubho0908.github.io/vidshelf-player/";
 
 // Sync worker base URL (deployed via .github/workflows/sync.yml).
-export const SYNC_URL = "https://vidshelf-sync.shubhojeet.workers.dev";
+export const SYNC_URL = "https://vidshelf-sync.shubhoeducation.workers.dev";
