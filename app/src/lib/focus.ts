@@ -13,7 +13,11 @@ function visible(el: HTMLElement): boolean {
 }
 
 export function getFocusable(): HTMLElement[] {
-  return Array.from(document.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(visible);
+  // Overlays (welcome, dialogs) trap focus: when a [data-focus-scope] exists,
+  // only elements inside the topmost one are reachable - never the page behind.
+  const scopes = document.querySelectorAll<HTMLElement>("[data-focus-scope]");
+  const root: ParentNode = scopes.length ? scopes[scopes.length - 1] : document;
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(visible);
 }
 
 export function enableKbMode(): void {
@@ -93,7 +97,10 @@ export function activate(): void {
   current.click();
 }
 
+let keysInstalled = false;
 export function installGlobalKeys(onBack: () => void): void {
+  if (keysInstalled) return; // double-install would double-step every D-pad press
+  keysInstalled = true;
   const pointerUsed = () => {
     document.documentElement.classList.remove("tv-kb");
     clearFocus();

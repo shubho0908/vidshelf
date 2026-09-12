@@ -35,7 +35,7 @@ html.tv-kb .tv-focus {
   z-index: 10;
   position: relative;
 }
-input.tv-focus, textareahtml.tv-kb .tv-focus { border-radius: 14px; transform: none; }
+html.tv-kb input.tv-focus, html.tv-kb textarea.tv-focus { border-radius: 14px; transform: none; }
 html.tv-kb button.tv-focus.bright { background: #ffffff; color: #000; }
 
 /* Floating translucent chrome, content scrolls under. Top padding clears the
