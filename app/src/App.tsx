@@ -12,7 +12,9 @@ export default function App() {
   const [unlocked, setUnlocked] = useState(() => mediaToken() !== null);
 
   useEffect(() => {
-    installGlobalKeys(() => window.history.back());
+    // While locked, back (webOS 461/Escape/Backspace) must not navigate
+    // away from the lock screen - there is nothing behind it to go back to.
+    installGlobalKeys(() => { if (mediaToken()) window.history.back(); });
   }, []);
 
   // Reset remote focus on every route change
