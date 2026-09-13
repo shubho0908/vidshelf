@@ -412,7 +412,7 @@ export default {
         return json({ ok: false, error: "forbidden" }, 403);
       const id = dm[1];
       const res = await env.DB.prepare("DELETE FROM media_videos WHERE id = ?").bind(id).run();
-      await env.MEDIA.delete(`media/${id}`);
+      await env.MEDIA.delete([`media/${id}`, `media/${id}.webp`]); // video + poster
       return json({ ok: true, removed: (res.meta?.changes ?? 0) > 0 });
     }
 
