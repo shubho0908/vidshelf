@@ -1,14 +1,12 @@
 # Release builds: ONLY on version tags (git tag v1.0.0 && git push --tags).
-# This is the only workflow that touches a macOS runner (dmg) - macOS minutes
-# bill ~10x Linux, so keeping it tag-gated is what protects the free tier.
+# macOS minutes bill ~10x Linux - tag-gating is what protects the free tier.
+# Shipping surfaces: the website (Vercel auto-deploys main) and the macOS dmg.
+# Android apk and webOS ipk were retired (user decision): do not re-add.
 name: Release
 
 on:
   push:
     tags: ["v*"]
-  # Manual dispatch builds ONLY the android apk (artifact upload, no release,
-  # no macOS minutes) - used to validate the apk pipeline before a tag.
-  workflow_dispatch:
 
 permissions:
   contents: write
@@ -18,33 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  webos-ipk:
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: app/package-lock.json
-      - run: npm ci
-        working-directory: app
-      - run: npm run build
-        working-directory: app
-      - run: npm install -g @webos-tools/cli
-      - run: ./scripts/package-webos.sh
-      - name: Create release if missing
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "VidShelf $GITHUB_REF_NAME" --generate-notes
-      - name: Upload ipk to release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$GITHUB_REF_NAME" build/*.ipk --clobber
-
   macos-dmg:
-    if: github.event_name == 'push'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -68,49 +40,3 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "$GITHUB_REF_NAME" src-tauri/target/release/bundle/dmg/*.dmg --clobber
-  android-apk:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: app/package-lock.json
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-      - name: Install Android NDK
-        run: |
-          SM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$SM" --licenses > /dev/null 2>&1 || true
-          "$SM" "platforms;android-34" "build-tools;34.0.0" "ndk;27.0.12077973" > /dev/null
-          echo "NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-      - run: npm ci && npm run build
-        working-directory: app
-      - name: Build debug APK (arm64)
-        run: npx --yes @tauri-apps/cli@latest android build --debug --apk --target aarch64
-      - name: Create release if missing
-        if: github.event_name == 'push'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "VidShelf $GITHUB_REF_NAME" --generate-notes
-      - name: Upload apk to release
-        if: github.event_name == 'push'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$GITHUB_REF_NAME" 'src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk' --clobber
-      - name: Upload apk as artifact (manual validation runs)
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
-        with:
-          name: vidshelf-apk
-          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
-          retention-days: 14

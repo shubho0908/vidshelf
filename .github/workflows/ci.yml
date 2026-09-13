@@ -1,7 +1,7 @@
-# Runs on every push/PR: Linux-only. Tests + web build + webOS ipk.
-# Linux minutes are the cheapest tier ($0.006/min) - designed to stay far
-# inside the 2,000 free minutes/month. No macOS here: dmg builds live in
-# release.yml and only run on version tags.
+# Runs on every push/PR: Linux-only. Tests + both builds (app + web bundle).
+# Linux minutes are the cheapest tier - designed to stay far inside the
+# 2,000 free minutes/month. No macOS here: dmg builds live in release.yml
+# and only run on version tags.
 name: CI
 
 on:
@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test-build-ipk:
+  test-build:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -29,14 +29,9 @@ jobs:
       - run: npm ci
       - run: npx vitest run
       - run: npm run build
-      - name: Install webOS CLI
-        run: npm install -g @webos-tools/cli
-        working-directory: .
-      - name: Package webOS ipk
-        run: ./scripts/package-webos.sh
-        working-directory: .
-      - uses: actions/upload-artifact@v4
-        with:
-          name: vidshelf-ipk
-          path: build/*.ipk
-          retention-days: 7
+      - run: npm run build:web
+      - name: Baked sync key must never reach the public web bundle
+        run: |
+          key=$(grep -o '"[0-9a-f]\{48\}"' src/syncKey.baked.ts | tr -d '"')
+          if grep -rq "$key" dist-web/; then echo "LEAK: baked key in web bundle"; exit 1; fi
+          echo "web bundle clean"
