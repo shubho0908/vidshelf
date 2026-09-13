@@ -20,7 +20,7 @@ export default defineConfig({
     target: "es2018",
     chunkSizeWarningLimit: 900,
     rollupOptions: isWebBuild
-      ? { input: { landing: "landing.html", app: "app.html" } }
+      ? { input: { index: "index.html" } }
       : undefined,
   },
 });
