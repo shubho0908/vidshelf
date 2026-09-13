@@ -127,6 +127,14 @@ function keyOk(key) {
 }
 
 
+// Constant-time string compare for the owner key check.
+function keyEq(a, b) {
+  if (a.length !== b.length) return false;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
+}
+
 // --- device pairing ----------------------------------------------------------
 // 256 % 32 == 0, so the modulo below is unbiased. Alphabet drops 0/O/1/I/L.
 const PAIR_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -353,6 +361,23 @@ export default {
     }
 
     // ---- home-server media catalog (public read, server-managed only) ----
+    // --- owner-gated media delete ------------------------------------------
+    // Only the owner key (the one baked into the binaries / entered on the
+    // web app) may delete home-server media. Auth is checked BEFORE any
+    // storage op, so abuse costs zero D1/R2. A successful delete costs
+    // exactly one D1 row delete + one R2 object delete. No listing, no
+    // scanning, no read-back.
+    const dm = url.pathname.match(/^\/media\/([A-Za-z0-9_-]{16,64})$/);
+    if (dm && request.method === "DELETE") {
+      const key = request.headers.get("X-Sync-Key") || "";
+      if (!env.VIDSHELF_KEY || !keyEq(key, env.VIDSHELF_KEY))
+        return json({ ok: false, error: "forbidden" }, 403);
+      const id = dm[1];
+      const res = await env.DB.prepare("DELETE FROM media_videos WHERE id = ?").bind(id).run();
+      await env.MEDIA.delete(`media/${id}`);
+      return json({ ok: true, removed: (res.meta?.changes ?? 0) > 0 });
+    }
+
     if (url.pathname === "/media/catalog") {
       if (request.method !== "GET") return json({ error: "method" }, 405);
       const ip = request.headers.get("CF-Connecting-IP") || "unknown";

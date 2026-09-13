@@ -3,6 +3,7 @@
 // path anywhere. Fetch is one cheap GET per app open / manual refresh;
 // localStorage cache keeps first paint instant and offline-safe.
 import { SYNC_URL } from "../config";
+import { getSyncConfig } from "./sync";
 import type { Entry } from "./storage";
 
 export interface MediaItem {
@@ -63,6 +64,30 @@ export function mediaEntry(m: MediaItem): Entry {
     createdAt: m.addedAt,
     updatedAt: m.addedAt,
   };
+}
+
+/** Remove one home-server video everywhere: worker deletes the D1 catalog
+ *  row and the R2 object in one call (owner key required). Locally we drop
+ *  it from the cached catalog - no refetch, no extra traffic. */
+export async function deleteServerMedia(id: string): Promise<"deleted" | "forbidden" | "failed"> {
+  const cfg = getSyncConfig();
+  if (!cfg) return "forbidden";
+  try {
+    const res = await fetch(`${cfg.url.replace(/\/+$/, "")}/media/${id}`, {
+      method: "DELETE",
+      headers: { "X-Sync-Key": cfg.key },
+    });
+    if (res.status === 403) return "forbidden";
+    if (!res.ok) return "failed";
+    try {
+      const raw = localStorage.getItem(CACHE_KEY);
+      const data = raw ? (JSON.parse(raw) as MediaItem[]) : [];
+      localStorage.setItem(CACHE_KEY, JSON.stringify(data.filter((x) => x.id !== id)));
+    } catch { /* cache is best-effort */ }
+    return "deleted";
+  } catch {
+    return "failed";
+  }
 }
 
 export function isMediaEntry(id: string): boolean {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { library, type Entry } from "../lib/storage";
-import { isMediaEntry, mediaEntry, readCatalogCache, refreshCatalog, type MediaItem } from "../lib/catalog";
+import { deleteServerMedia, isMediaEntry, mediaEntry, readCatalogCache, refreshCatalog, MEDIA_ENTRY_PREFIX, type MediaItem } from "../lib/catalog";
 import { IS_WEB_BUILD, SYNC_URL } from "../config";
 import { getSyncConfig, hasCustomSyncConfig, setSyncConfig, lastSyncAt, syncNow, scheduleSync, pairStart, pairStatus, pairApprove, rotateKey, mintKey, type SyncResult, unlinkDevice } from "../lib/sync";
 import { parseLink } from "../lib/router";
@@ -470,6 +470,25 @@ export default function LibraryView() {
     URL.revokeObjectURL(a.href);
   };
 
+  const [mediaConfirm, setMediaConfirm] = useState<string | null>(null);
+  const [mediaDeleting, setMediaDeleting] = useState<string | null>(null);
+  const [mediaDeleteErr, setMediaDeleteErr] = useState<string | null>(null);
+
+  // Owner-only: deletes the D1 row + R2 object via the worker in one call,
+  // then drops the item from local state. No refetch, no extra traffic.
+  const onMediaDelete = async (entryId: string) => {
+    if (mediaDeleting) return;
+    if (mediaConfirm !== entryId) { setMediaConfirm(entryId); setMediaDeleteErr(null); return; }
+    const mid = entryId.slice(MEDIA_ENTRY_PREFIX.length);
+    setMediaDeleting(entryId);
+    setMediaDeleteErr(null);
+    const r = await deleteServerMedia(mid);
+    setMediaDeleting(null);
+    setMediaConfirm(null);
+    if (r === "deleted") setMedia((cur) => cur.filter((m) => m.id !== mid));
+    else setMediaDeleteErr(r === "forbidden" ? "Owner key required to delete home-server media." : "Delete failed - try again.");
+  };
+
   const doImport = async (f: File) => {
     try {
       library.importJson(await f.text());
@@ -543,10 +562,27 @@ export default function LibraryView() {
             ) : (
               <div className="grid grid-cols-1 gap-x-5 gap-y-7 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {shelf.map((e) => (
-                  <Card key={e.id} entry={e} />
+                  <div key={e.id} className="relative">
+                    <Card entry={e} />
+                    {isMediaEntry(e.id) && (
+                      <button
+                        data-focusable
+                        disabled={mediaDeleting === e.id}
+                        onClick={() => void onMediaDelete(e.id)}
+                        title={mediaConfirm === e.id ? "Tap again to delete from the home server" : "Delete from the home server"}
+                        className={"absolute right-2.5 top-2.5 rounded-md border px-2 py-0.5 text-[11px] font-semibold backdrop-blur-sm " +
+                          (mediaConfirm === e.id
+                            ? "border-red-400/50 bg-red-500/70 text-white"
+                            : "border-white/20 bg-black/60 text-slate-300 hover:text-red-300")}
+                      >
+                        {mediaDeleting === e.id ? "…" : mediaConfirm === e.id ? "Delete?" : "✕"}
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             )}
+            {mediaDeleteErr && <p className="t-small text-red-400">{mediaDeleteErr}</p>}
           </div>
           )}
         </div>
