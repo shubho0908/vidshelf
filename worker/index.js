@@ -159,6 +159,44 @@ async function rateGate(env, scope, id, windowS, limit) {
   return (row?.count ?? 0) <= limit;
 }
 
+// --- in-isolate hot-path limiting/caching -----------------------------------
+// Range requests are the hottest path in the system (every play, every seek).
+// Paying 5 sequential D1 round trips per range (2 limiters + media lookup)
+// added hundreds of ms to every seek, so the hot path stays in-isolate:
+// - per-minute burst gates become per-isolate fixed windows (burst smoothing
+//   is best-effort by nature; the daily breaker stays the hard stop),
+// - the daily global breaker is sampled once per minute per isolate: it still
+//   trips under a storm (many isolates x samples) without D1 per request,
+// - media rows are cached by id; ids are immutable per upload, and a deleted
+//   row's object is gone too, so a stale entry still 404s at the R2 get.
+const localBuckets = new Map(); // "scope:id" -> {win, count}
+function rateGateLocal(scope, id, windowS, limit) {
+  const win = Math.floor(Date.now() / (windowS * 1000));
+  const k = scope + ":" + id;
+  const e = localBuckets.get(k);
+  if (e && e.win === win) { e.count++; return e.count <= limit; }
+  localBuckets.set(k, { win, count: 1 });
+  return true;
+}
+let dailyOkUntil = 0, dailyOk = true;
+async function dailyStreamBudget(env) {
+  const now = Date.now();
+  if (now < dailyOkUntil) return dailyOk;
+  dailyOk = await rateGate(env, "mediaday", "global", 86400, MEDIA_STREAMS_PER_DAY);
+  dailyOkUntil = now + 60_000;
+  return dailyOk;
+}
+const mediaRowCache = new Map(); // id -> { r2_key, size_bytes, content_type }
+async function mediaRow(env, id) {
+  let row = mediaRowCache.get(id);
+  if (row) return row;
+  row = await env.DB.prepare(
+    "SELECT r2_key, size_bytes, content_type FROM media_videos WHERE id = ?"
+  ).bind(id).first();
+  if (row) mediaRowCache.set(id, row);
+  return row;
+}
+
 // --- sync write rate limit: one row per (ns, hour bucket) -------------------
 async function writeBudget(env, ns) {
   const perHour = Number(env.WRITES_PER_HOUR) || WRITES_PER_HOUR_DEFAULT;
@@ -402,17 +440,16 @@ export default {
     if (mm) {
       if (request.method !== "GET" && request.method !== "HEAD") return json({ error: "method" }, 405);
       const ip = request.headers.get("CF-Connecting-IP") || "unknown";
-      if (!(await rateGate(env, "mediastream", ip, 60, MEDIA_STREAM_PER_MIN))) {
+      if (!rateGateLocal("mediastream", ip, 60, MEDIA_STREAM_PER_MIN)) {
         return json({ error: "rate_limited" }, 429, { "Retry-After": "60" });
       }
-      // Global daily circuit breaker: trips at ~half the free worker quota,
-      // so a hotlink storm can never take pairing/sync/downloads down with it.
-      if (!(await rateGate(env, "mediaday", "global", 86400, MEDIA_STREAMS_PER_DAY))) {
+      // Global daily circuit breaker (sampled per isolate): trips at ~half the
+      // free worker quota, so a hotlink storm can never take pairing/sync/
+      // downloads down with it.
+      if (!(await dailyStreamBudget(env))) {
         return json({ error: "daily_budget" }, 503, { "Retry-After": "3600" });
       }
-      const row = await env.DB.prepare(
-        "SELECT r2_key, size_bytes, content_type FROM media_videos WHERE id = ?"
-      ).bind(mm[1]).first();
+      const row = await mediaRow(env, mm[1]);
       if (!row) return json({ error: "not found" }, 404);
       const size = Number(row.size_bytes) || 0;
       let start = 0, end = size - 1, status = 200;
@@ -444,7 +481,7 @@ export default {
     if (mt) {
       if (request.method !== "GET" && request.method !== "HEAD") return json({ error: "method" }, 405);
       const ip = request.headers.get("CF-Connecting-IP") || "unknown";
-      if (!(await rateGate(env, "mediathumb", ip, 60, MEDIA_THUMB_PER_MIN))) {
+      if (!rateGateLocal("mediathumb", ip, 60, MEDIA_THUMB_PER_MIN)) {
         return json({ error: "rate_limited" }, 429, { "Retry-After": "60" });
       }
       const obj = await env.MEDIA.get("media/" + mt[1] + ".webp");
