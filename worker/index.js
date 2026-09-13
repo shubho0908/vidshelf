@@ -394,7 +394,7 @@ export default {
           durationSec: r.duration_sec, position: r.position,
           hasThumb: !!r.has_thumb, addedAt: r.added_at,
         })),
-      }, 200, { "Cache-Control": "public, max-age=60" });
+      }, 200, { "Cache-Control": "public, max-age=5" });
     }
 
     // ---- media bytes: R2 private bucket, full Range support ----------------
