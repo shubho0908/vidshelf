@@ -37,6 +37,13 @@ export function readCatalogCache(): MediaItem[] {
 export async function refreshCatalog(): Promise<MediaItem[]> {
   try {
     const res = await fetch(withMediaToken(SYNC_URL + "/media/catalog"));
+    if (res.status === 401) {
+      // Media token expired/revoked mid-session - drop it and bounce the app
+      // back to the lock screen instead of silently degrading.
+      localStorage.removeItem("vidshelf.media.lock.v1");
+      location.reload();
+      return readCatalogCache();
+    }
     if (!res.ok) return readCatalogCache();
     const data = (await res.json()) as { videos?: MediaItem[] };
     const videos = Array.isArray(data.videos) ? data.videos : [];
