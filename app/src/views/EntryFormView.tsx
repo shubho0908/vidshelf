@@ -109,7 +109,7 @@ function ThumbField({
 function LinkHint({ url }: { url: string }) {
   const parsed = useMemo(() => parseLink(url), [url]);
   if (!url.trim()) return null;
-  const ok = parsed.kind === "youtube" || parsed.kind === "direct" || parsed.kind === "hls";
+  const ok = parsed.kind !== "unknown" && parsed.kind !== "ott";
   const thumb = thumbnailForUrl(url);
   return (
     <div className={`flex items-center gap-3.5 rounded-2xl border p-3 ${ok ? "border-white/[0.07] bg-white/[0.03]" : "border-red-400/30 bg-red-500/[0.07]"}`}>
@@ -121,7 +121,8 @@ function LinkHint({ url }: { url: string }) {
       <div className="min-w-0 flex-1">
         <KindBadge kind={parsed.kind} label={parsed.label} />
         {!ok && <div className="t-small mt-1.5 text-red-300">{parsed.blockReason}</div>}
-        {ok && parsed.kind === "youtube" && <div className="t-small mt-1.5 text-slate-400">Plays via the official YouTube player. Some videos disable embedding.</div>}
+        {ok && (parsed.kind === "youtube" || parsed.kind === "vimeo" || parsed.kind === "dailymotion") && <div className="t-small mt-1.5 text-slate-400">Plays via the official {parsed.label} player. Some videos disable embedding.</div>}
+        {ok && parsed.kind === "embed" && <div className="t-small mt-1.5 text-slate-400">Embedded in a frame. If {parsed.label} blocks embedding, the player offers open-in-browser.</div>}
       </div>
     </div>
   );
@@ -275,7 +276,7 @@ export default function EntryFormView({ editId }: { editId?: string }) {
                   data-focusable
                   value={v.url}
                   onChange={(e) => setUrl(i, e.target.value)}
-                  placeholder="https://www.youtube.com/watch?v=... or https://example.com/video.mp4"
+                  placeholder="Any video link - YouTube, Vimeo, Dailymotion, .mp4, or any site"
                   className={inputCls + " flex-1 font-mono !text-[13px]"}
                 />
                 {type === "playlist" && videos.length > 1 && (

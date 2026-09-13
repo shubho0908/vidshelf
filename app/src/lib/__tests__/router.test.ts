@@ -88,6 +88,69 @@ describe("parseLink: ott + unknown", () => {
   }
   it("flags garbage", () => {
     expect(parseLink("not a url at all :::").kind).toBe("unknown");
-    expect(parseLink("https://example.com/page").kind).toBe("unknown");
+  });
+});
+
+describe("parseLink: vimeo", () => {
+  const cases = [
+    ["https://vimeo.com/1084537", "1084537", undefined],
+    ["https://www.vimeo.com/1084537", "1084537", undefined],
+    ["https://player.vimeo.com/video/1084537", "1084537", undefined],
+    ["https://vimeo.com/manage/videos/1084537", "1084537", undefined],
+    ["https://vimeo.com/76979871/002dceaa99", "76979871", "002dceaa99"],
+    ["https://vimeo.com/76979871?h=002dceaa99", "76979871", "002dceaa99"],
+  ] as const;
+  for (const [url, id, hash] of cases) {
+    it(`parses ${url}`, () => {
+      const p = parseLink(url);
+      expect(p.kind).toBe("vimeo");
+      expect(p.videoId).toBe(id);
+      expect(p.playUrl).toBe(`https://player.vimeo.com/video/${id}${hash ? `?h=${hash}` : ""}`);
+    });
+  }
+  it("rejects non-numeric ids", () => {
+    expect(parseLink("https://vimeo.com/staffpicks").kind).not.toBe("vimeo");
+  });
+});
+
+describe("parseLink: dailymotion", () => {
+  const cases = [
+    ["https://www.dailymotion.com/video/x8thn0e", "x8thn0e"],
+    ["https://dailymotion.com/video/x8thn0e", "x8thn0e"],
+    ["https://dai.ly/x8thn0e", "x8thn0e"],
+    ["https://www.dailymotion.com/embed/video/x8thn0e", "x8thn0e"],
+  ] as const;
+  for (const [url, id] of cases) {
+    it(`parses ${url}`, () => {
+      const p = parseLink(url);
+      expect(p.kind).toBe("dailymotion");
+      expect(p.videoId).toBe(id);
+      expect(p.playUrl).toBe(`https://www.dailymotion.com/embed/video/${id}`);
+    });
+  }
+});
+
+describe("parseLink: universal embed fallback", () => {
+  it("embeds any other http(s) page without a whitelist", () => {
+    for (const url of [
+      "https://example.com/page",
+      "https://archive.org/embed/BigBuckBunny_124",
+      "https://sub.domain.co.in/watch?v=abc",
+    ]) {
+      const p = parseLink(url);
+      expect(p.kind).toBe("embed");
+      expect(p.playUrl).toBe(url);
+      expect(p.blockReason).toBeUndefined();
+    }
+  });
+  it("normalizes bare hosts into embeds", () => {
+    expect(parseLink("archive.org/embed/x").playUrl).toBe("https://archive.org/embed/x");
+  });
+  it("keeps OTT hard blocks ahead of the fallback", () => {
+    expect(parseLink("https://www.netflix.com/watch/80057281").kind).toBe("ott");
+  });
+  it("keeps direct files and hls ahead of the fallback", () => {
+    expect(parseLink("https://example.com/movie.mp4").kind).toBe("direct");
+    expect(parseLink("https://example.com/live/master.m3u8").kind).toBe("hls");
   });
 });

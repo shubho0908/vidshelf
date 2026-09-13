@@ -1,6 +1,6 @@
 import { SYNC_URL, YT_PLAYER_BASE } from "../config";
 
-export type LinkKind = "youtube" | "r2" | "direct" | "hls" | "ott" | "unknown";
+export type LinkKind = "youtube" | "vimeo" | "dailymotion" | "r2" | "direct" | "hls" | "embed" | "ott" | "unknown";
 
 export interface ParsedLink {
   kind: LinkKind;
@@ -62,6 +62,31 @@ function ytIdFrom(u: URL): string | null {
   return null;
 }
 
+function vimeoFrom(u: URL): { id: string; hash?: string } | null {
+  const host = u.hostname.replace(/^www\./, "");
+  if (host !== "vimeo.com" && host !== "player.vimeo.com") return null;
+  const parts = u.pathname.split("/").filter(Boolean);
+  const i = parts.findIndex((p) => /^\d{6,12}$/.test(p));
+  if (i === -1) return null;
+  // unlisted videos carry a privacy hash: vimeo.com/<id>/<hash> or ?h=<hash>
+  const tail = parts[i + 1] ?? "";
+  const hash = /^[0-9a-f]{8,12}$/i.test(tail) ? tail : (u.searchParams.get("h") ?? undefined);
+  return { id: parts[i], hash };
+}
+
+function dailymotionIdFrom(u: URL): string | null {
+  const host = u.hostname.replace(/^www\./, "");
+  if (host === "dai.ly") {
+    const id = u.pathname.split("/").filter(Boolean)[0] ?? "";
+    return /^[a-z0-9]{5,12}$/i.test(id) ? id : null;
+  }
+  if (host === "dailymotion.com") {
+    const m = u.pathname.match(/^\/(embed\/)?video\/([A-Za-z0-9]{5,12})/);
+    if (m) return m[2];
+  }
+  return null;
+}
+
 /** Home-server media id from an r2:// URL. These entries come from the
  *  server-managed catalog (worker /media/catalog) and stream through the
  *  worker's rate-limited /media/stream route - the R2 bucket itself is
@@ -99,6 +124,17 @@ export function parseLink(raw: string): ParsedLink {
     return { kind: "youtube", originalUrl: raw, playUrl: `${YT_PLAYER_BASE}?v=${yt}`, videoId: yt, label: "YouTube" };
   }
 
+  const vimeo = vimeoFrom(u);
+  if (vimeo) {
+    const h = vimeo.hash ? `?h=${vimeo.hash}` : "";
+    return { kind: "vimeo", originalUrl: raw, playUrl: `https://player.vimeo.com/video/${vimeo.id}${h}`, videoId: vimeo.id, label: "Vimeo" };
+  }
+
+  const dm = dailymotionIdFrom(u);
+  if (dm) {
+    return { kind: "dailymotion", originalUrl: raw, playUrl: `https://www.dailymotion.com/embed/video/${dm}`, videoId: dm, label: "Dailymotion" };
+  }
+
   if (isDriveUrl(u)) {
     return {
       kind: "unknown",
@@ -128,11 +164,10 @@ export function parseLink(raw: string): ParsedLink {
     return { kind: "direct", originalUrl: raw, playUrl: u.toString(), label: "Video file" };
   }
 
-  return {
-    kind: "unknown",
-    originalUrl: raw,
-    playUrl: null,
-    label: "Unsupported link",
-    blockReason: "Supported links: YouTube and direct video files (.mp4, .m3u8, .webm...). Streaming apps like Netflix or Prime Video cannot be embedded.",
-  };
+  // Universal fallback: any other http(s) page gets a generic iframe embed.
+  // No whitelist - the page itself decides whether it allows framing; if it
+  // blocks (X-Frame-Options/CSP), the player offers open-in-browser instead
+  // of dumping a broken error page on the user.
+  const pretty = host.replace(/^www\./, "");
+  return { kind: "embed", originalUrl: raw, playUrl: u.toString(), label: pretty };
 }

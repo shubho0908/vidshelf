@@ -9,20 +9,61 @@ import { KindBadge, VideoThumb } from "../components/bits";
 import OwnPlayer from "../components/OwnPlayer";
 
 
+async function openExternal(url: string) {
+  if ((window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) {
+    try {
+      const { openUrl } = await import("@tauri-apps/plugin-opener");
+      await openUrl(url);
+      return;
+    } catch { /* fall through to window.open */ }
+  }
+  window.open(url, "_blank", "noopener");
+}
+
+const OFFICIAL_IFRAME_ALLOW =
+  "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen";
+
 function Player({ parsed, onFullscreen, isFs }: {
   parsed: ParsedLink;
   onFullscreen: () => void;
   isFs: boolean;
 }) {
-  if (parsed.kind === "youtube") {
+  if (parsed.kind === "youtube" || parsed.kind === "vimeo" || parsed.kind === "dailymotion") {
     return (
       <iframe
         src={parsed.playUrl ?? undefined}
         title={parsed.label}
         className="h-full w-full border-0 bg-black"
-        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+        allow={OFFICIAL_IFRAME_ALLOW}
         allowFullScreen
       />
+    );
+  }
+  if (parsed.kind === "embed") {
+    // Generic embed: any site. Some sites refuse framing (X-Frame-Options);
+    // the browser then renders its own block page inside the frame and we
+    // cannot detect it cross-origin - so the fallback hint always rides
+    // along instead of an undetectable error state.
+    return (
+      <div className="relative h-full w-full bg-black">
+        <iframe
+          src={parsed.playUrl ?? undefined}
+          title={parsed.label}
+          className="h-full w-full border-0 bg-black"
+          allow={OFFICIAL_IFRAME_ALLOW}
+          allowFullScreen
+        />
+        <div className="absolute inset-x-0 bottom-0 z-10 flex items-center justify-between gap-3 bg-black/70 px-4 py-2 backdrop-blur-md">
+          <span className="t-small truncate text-slate-300">Blank? {parsed.label} may block embedding.</span>
+          <button
+            data-focusable
+            onClick={() => void openExternal(parsed.playUrl ?? parsed.originalUrl)}
+            className="shrink-0 rounded-xl border border-white/20 bg-white/[0.08] px-3 py-1.5 text-[12px] font-medium text-white hover:bg-white/[0.16]"
+          >
+            Open in browser
+          </button>
+        </div>
+      </div>
     );
   }
   if (parsed.kind === "r2") return <OwnPlayer src={parsed.playUrl!} cors onFullscreen={onFullscreen} isFs={isFs} />;
@@ -90,7 +131,7 @@ export default function PlayerView({ id, index }: { id: string; index: number })
   // TV remote on the OWN player (direct/HLS/Drive stream): focus the player
   // box, then OK toggles play/pause, left/right seek 10s, up/down volume.
   // The control bar stays spatial-nav reachable on its own.
-  const useOwn = Boolean(parsed0 && parsed0.kind !== "youtube" && parsed0.kind !== "ott" && parsed0.kind !== "unknown");
+  const useOwn = Boolean(parsed0 && (parsed0.kind === "r2" || parsed0.kind === "direct" || parsed0.kind === "hls"));
   useEffect(() => {
     if (!useOwn) return;
     const onKey = (e: KeyboardEvent) => {
