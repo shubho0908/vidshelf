@@ -3,13 +3,23 @@ import { unlockMedia } from "../lib/medialock";
 
 // Full-page media lock - not a dialog. Renders INSTEAD of the app until the
 // worker accepts the PIN and hands back a media token.
+// TV/remote: the input and button are data-focusable so the spatial focus
+// system (D-pad) can reach them; OK/Enter on the field opens the TV's
+// on-screen keyboard, digits auto-submit at 6.
 export default function LockView({ onUnlock }: { onUnlock: () => void }) {
   const [pin, setPin] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { inputRef.current?.focus(); }, []);
+  useEffect(() => {
+    // Auto-focus only where a physical keyboard exists (desktop/laptop).
+    // On TVs this would fight the D-pad flow - there the remote's OK key
+    // focuses the field and opens the on-screen keyboard instead.
+    if (window.matchMedia("(pointer: fine) and (hover: hover)").matches) {
+      inputRef.current?.focus();
+    }
+  }, []);
 
   async function submit(value: string) {
     if (busy || !/^\d{4,8}$/.test(value)) return;
@@ -43,6 +53,8 @@ export default function LockView({ onUnlock }: { onUnlock: () => void }) {
         >
           <input
             ref={inputRef}
+            data-focusable
+            data-autofocus
             type="password"
             inputMode="numeric"
             autoComplete="off"
@@ -54,12 +66,22 @@ export default function LockView({ onUnlock }: { onUnlock: () => void }) {
               setErr("");
               if (v.length >= 6) void submit(v);
             }}
+            onKeyDown={(e) => {
+              // The global TV key handler would treat Enter as "blur the
+              // field"; here it must mean submit. Stop it from bubbling.
+              if (e.key === "Enter") {
+                e.preventDefault();
+                e.stopPropagation();
+                void submit(pin);
+              }
+            }}
             placeholder="PIN"
             className={`w-full min-w-0 rounded-2xl border bg-white/[0.04] px-4 py-3.5 text-center text-xl font-semibold tracking-[0.4em] text-white placeholder:text-slate-600 focus:outline-none ${err ? "border-red-400/50" : "border-white/[0.1] focus:border-white/25"}`}
           />
           {err && <p className="t-small mt-2.5 text-center text-red-300">{err}</p>}
           <button
             type="submit"
+            data-focusable
             disabled={busy || pin.length < 4}
             className="mt-4 w-full rounded-2xl bg-white py-3 text-[15px] font-semibold text-black transition-opacity disabled:opacity-40"
           >
