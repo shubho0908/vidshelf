@@ -1,12 +1,15 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useHashRoute } from "./lib/route";
 import { clearFocus, focusFirst, installGlobalKeys } from "./lib/focus";
 import LibraryView from "./views/LibraryView";
+import LockView from "./views/LockView";
+import { mediaToken } from "./lib/medialock";
 import EntryFormView from "./views/EntryFormView";
 import PlayerView from "./views/PlayerView";
 
 export default function App() {
   const route = useHashRoute();
+  const [unlocked, setUnlocked] = useState(() => mediaToken() !== null);
 
   useEffect(() => {
     installGlobalKeys(() => window.history.back());
@@ -18,6 +21,8 @@ export default function App() {
     const t = setTimeout(focusFirst, 60);
     return () => clearTimeout(t);
   }, [route]);
+
+  if (!unlocked) return <LockView onUnlock={() => setUnlocked(true)} />;
 
   let view: React.ReactNode;
   if (route.startsWith("/play/")) {

@@ -2,6 +2,7 @@
 // shows by default. Read-only for apps - there is no app-callable upload
 // path anywhere. Fetch is one cheap GET per app open / manual refresh;
 // localStorage cache keeps first paint instant and offline-safe.
+import { withMediaToken } from "./medialock";
 import { SYNC_URL } from "../config";
 import { getSyncConfig } from "./sync";
 import type { Entry } from "./storage";
@@ -35,7 +36,7 @@ export function readCatalogCache(): MediaItem[] {
  *  catalog wins - the home shelf must never vanish on a flaky network. */
 export async function refreshCatalog(): Promise<MediaItem[]> {
   try {
-    const res = await fetch(SYNC_URL + "/media/catalog");
+    const res = await fetch(withMediaToken(SYNC_URL + "/media/catalog"));
     if (!res.ok) return readCatalogCache();
     const data = (await res.json()) as { videos?: MediaItem[] };
     const videos = Array.isArray(data.videos) ? data.videos : [];

@@ -116,6 +116,31 @@ function json(body, status = 200, extra = {}) {
   });
 }
 
+// ---- media lock helpers ---------------------------------------------------
+// PIN lives only in the MEDIA_PIN secret. Unlock mints an HMAC token
+// (exp.sig, sig = HMAC-SHA256(MEDIA_PIN, "media."+exp)) so the hot stream
+// path needs zero D1 reads - one cheap signature check per request.
+async function hmacHex(secret, msg) {
+  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(msg));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function mediaTokenOk(tok, env) {
+  if (!/^\d{13,16}\.[0-9a-f]{64}$/.test(tok || "")) return false;
+  const i = tok.indexOf(".");
+  const exp = tok.slice(0, i), sig = tok.slice(i + 1);
+  if (Number(exp) < Date.now()) return false;
+  const want = await hmacHex(env.MEDIA_PIN, "media." + exp);
+  if (want.length !== sig.length) return false;
+  let d = 0;
+  for (let j = 0; j < want.length; j++) d |= want.charCodeAt(j) ^ sig.charCodeAt(j);
+  return d === 0;
+}
+function reqMediaToken(request) {
+  const u = new URL(request.url);
+  return u.searchParams.get("mt") || request.headers.get("X-Media-Token") || "";
+}
+
 async function nsOf(key) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -419,8 +444,38 @@ export default {
       return json({ ok: true, removed: (res.meta?.changes ?? 0) > 0 });
     }
 
+    // ---- media unlock: PIN -> HMAC token (public, IP-limited, lockout) -----
+    if (url.pathname === "/media/unlock") {
+      if (request.method !== "POST") return json({ error: "method" }, 405);
+      if (!env.MEDIA_PIN) return json({ error: "not_configured" }, 503);
+      const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      if (!(await rateGate(env, "mediaunlock", ip, 60, 10))) {
+        return json({ error: "rate_limited" }, 429, { "Retry-After": "60" });
+      }
+      let body = {};
+      try { body = await request.json(); } catch { /* empty */ }
+      const pin = typeof body.pin === "string" ? body.pin : "";
+      const ea = new TextEncoder().encode(pin.padEnd(64, "\0"));
+      const eb = new TextEncoder().encode(env.MEDIA_PIN.padEnd(64, "\0"));
+      let diff = 0;
+      for (let i = 0; i < 64; i++) diff |= ea[i] ^ eb[i];
+      const match = pin.length === env.MEDIA_PIN.length && env.MEDIA_PIN.length > 0 && diff === 0;
+      if (!match) {
+        const over = !(await rateGate(env, "unlockfail", ip, 900, 5));
+        return over
+          ? json({ error: "locked" }, 429, { "Retry-After": "900" })
+          : json({ error: "wrong_pin" }, 401);
+      }
+      const exp = Date.now() + 30 * 24 * 3600 * 1000;
+      const sig = await hmacHex(env.MEDIA_PIN, "media." + exp);
+      return json({ ok: true, token: exp + "." + sig, expiresAt: exp });
+    }
+
     if (url.pathname === "/media/catalog") {
       if (request.method !== "GET") return json({ error: "method" }, 405);
+      if (env.MEDIA_PIN && !(await mediaTokenOk(reqMediaToken(request), env))) {
+        return json({ error: "locked" }, 401);
+      }
       const ip = request.headers.get("CF-Connecting-IP") || "unknown";
       if (!(await rateGate(env, "mediacat", ip, 60, MEDIA_CAT_PER_MIN))) {
         return json({ error: "rate_limited" }, 429, { "Retry-After": "60" });
@@ -442,6 +497,9 @@ export default {
     const mm = url.pathname.match(/^\/media\/stream\/([A-Za-z0-9_-]{16,64})$/);
     if (mm) {
       if (request.method !== "GET" && request.method !== "HEAD") return json({ error: "method" }, 405);
+      if (env.MEDIA_PIN && !(await mediaTokenOk(reqMediaToken(request), env))) {
+        return json({ error: "locked" }, 401);
+      }
       const ip = request.headers.get("CF-Connecting-IP") || "unknown";
       if (!rateGateLocal("mediastream", ip, 60, MEDIA_STREAM_PER_MIN)) {
         return json({ error: "rate_limited" }, 429, { "Retry-After": "60" });
@@ -483,6 +541,9 @@ export default {
     const mt = url.pathname.match(/^\/media\/thumb\/([A-Za-z0-9_-]{16,64})$/);
     if (mt) {
       if (request.method !== "GET" && request.method !== "HEAD") return json({ error: "method" }, 405);
+      if (env.MEDIA_PIN && !(await mediaTokenOk(reqMediaToken(request), env))) {
+        return json({ error: "locked" }, 401);
+      }
       const ip = request.headers.get("CF-Connecting-IP") || "unknown";
       if (!rateGateLocal("mediathumb", ip, 60, MEDIA_THUMB_PER_MIN)) {
         return json({ error: "rate_limited" }, 429, { "Retry-After": "60" });

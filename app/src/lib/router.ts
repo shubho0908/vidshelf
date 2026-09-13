@@ -1,3 +1,4 @@
+import { withMediaToken } from "./medialock";
 import { SYNC_URL, YT_PLAYER_BASE } from "../config";
 
 export type LinkKind = "youtube" | "vimeo" | "dailymotion" | "r2" | "direct" | "hls" | "embed" | "ott" | "unknown";
@@ -97,7 +98,7 @@ export function r2IdFrom(raw: string): string | null {
   return m && R2_ID.test(m[1]) ? m[1] : null;
 }
 export function r2StreamUrl(id: string): string {
-  return `${SYNC_URL.replace(/\/+$/, "")}/media/stream/${id}`;
+  return withMediaToken(`${SYNC_URL.replace(/\/+$/, "")}/media/stream/${id}`);
 }
 
 function isDriveUrl(u: URL): boolean {

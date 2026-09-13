@@ -43,5 +43,7 @@ jobs:
           npx --yes wrangler@latest d1 execute vidshelf --remote --file schema-v4.sql --yes
       - name: Set sync key on the worker
         run: echo "${{ secrets.VIDSHELF_SYNC_KEY }}" | npx --yes wrangler@latest secret put VIDSHELF_KEY
+      - name: Set media lock PIN on the worker
+        run: echo "${{ secrets.MEDIA_PIN }}" | npx --yes wrangler@latest secret put MEDIA_PIN
       - name: Deploy worker
         run: npx --yes wrangler@latest deploy
