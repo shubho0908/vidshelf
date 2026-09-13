@@ -58,7 +58,16 @@ export default function OwnPlayer({
     let destroy: (() => void) | undefined;
     import("hls.js").then(({ default: Hls }) => {
       if (Hls.isSupported() && vRef.current) {
-        const h = new Hls({ enableWorker: true });
+        const h = new Hls({
+          enableWorker: true,
+          // ABR default starts at 500kbps (potato first frame, climbs slowly).
+          // Seed the estimate high so the FIRST rendition picked is near-top;
+          // ABR still drops instantly if real bandwidth can't sustain it.
+          abrEwmaDefaultEstimate: 8_000_000,
+          // Device-smart: never pull a rendition the screen can't show
+          // (a 1080p TV gets 1080p, not 4K bits it would just throw away).
+          capLevelToPlayerSize: true,
+        });
         h.loadSource(src);
         h.attachMedia(vRef.current);
         destroy = () => h.destroy();

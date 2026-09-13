@@ -126,13 +126,15 @@ export function parseLink(raw: string): ParsedLink {
 
   const vimeo = vimeoFrom(u);
   if (vimeo) {
-    const h = vimeo.hash ? `?h=${vimeo.hash}` : "";
+    // quality=2160p asks for the top rendition; the player falls back to
+    // the nearest available and ABR adapts to real bandwidth from there.
+    const h = vimeo.hash ? `?h=${vimeo.hash}&quality=2160p` : "?quality=2160p";
     return { kind: "vimeo", originalUrl: raw, playUrl: `https://player.vimeo.com/video/${vimeo.id}${h}`, videoId: vimeo.id, label: "Vimeo" };
   }
 
   const dm = dailymotionIdFrom(u);
   if (dm) {
-    return { kind: "dailymotion", originalUrl: raw, playUrl: `https://www.dailymotion.com/embed/video/${dm}`, videoId: dm, label: "Dailymotion" };
+    return { kind: "dailymotion", originalUrl: raw, playUrl: `https://www.dailymotion.com/embed/video/${dm}?quality=2160`, videoId: dm, label: "Dailymotion" };
   }
 
   if (isDriveUrl(u)) {

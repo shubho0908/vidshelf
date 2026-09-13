@@ -84,8 +84,11 @@ const PLAYER_HTML = `<!doctype html>
         videoId: v,
         width: '100%',
         height: '100%',
-        playerVars: { autoplay: 1, rel: 0, modestbranding: 1, playsinline: 1 },
+        playerVars: { autoplay: 1, rel: 0, modestbranding: 1, playsinline: 1, vq: 'highres' },
         events: {
+          // Prefer the highest available rendition; YouTube still adapts down
+          // automatically on weak bandwidth, so this never stalls playback.
+          onReady: (e) => e.target.setPlaybackQuality('highres'),
           onError: (e) => {
             const map = {
               2: 'Invalid video ID.',

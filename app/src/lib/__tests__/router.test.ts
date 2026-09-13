@@ -105,7 +105,7 @@ describe("parseLink: vimeo", () => {
       const p = parseLink(url);
       expect(p.kind).toBe("vimeo");
       expect(p.videoId).toBe(id);
-      expect(p.playUrl).toBe(`https://player.vimeo.com/video/${id}${hash ? `?h=${hash}` : ""}`);
+      expect(p.playUrl).toBe(`https://player.vimeo.com/video/${id}${hash ? `?h=${hash}&quality=2160p` : "?quality=2160p"}`);
     });
   }
   it("rejects non-numeric ids", () => {
@@ -125,7 +125,7 @@ describe("parseLink: dailymotion", () => {
       const p = parseLink(url);
       expect(p.kind).toBe("dailymotion");
       expect(p.videoId).toBe(id);
-      expect(p.playUrl).toBe(`https://www.dailymotion.com/embed/video/${id}`);
+      expect(p.playUrl).toBe(`https://www.dailymotion.com/embed/video/${id}?quality=2160`);
     });
   }
 });
