@@ -17,7 +17,7 @@
 //   POST /pair/approve    -> authed. binds caller's key to a pending code. 5 fails = 10-min lock
 //   POST /rotate          -> authed. migrates ns to caller-supplied new key (D1 re-key + R2
 //                            re-prefix + tombstones); old ns revoked instantly (401 key_revoked)
-//   GET  /download/<apk|ipk|dmg>   -> PUBLIC. R2-cached release assets, Cache API
+//   GET  /download/dmg            -> PUBLIC. R2-cached release asset, Cache API
 //                            in front, GitHub PAT only on cold miss.
 //                            Per-IP combined budget: 3 downloads/min -> 429 +
 //                            Retry-After; 3 strikes while limited -> 30 min
@@ -238,7 +238,7 @@ async function releaseWithAsset(env, cache, kind, pat) {
 
 // Auto-warm: every few minutes, mirror the newest release assets into R2 so
 // the first real user download is served hot, not streamed cold from GitHub.
-const DL_PATTERNS = { apk: /app-universal-debug\.apk$/, ipk: /\.ipk$/, dmg: /\.dmg$/ };
+const DL_PATTERNS = { dmg: /\.dmg$/ };
 
 async function warmReleases(env) {
   const cache = caches.default;
@@ -275,7 +275,7 @@ export default {
     if (url.pathname === "/health") return json({ ok: true });
 
     // ---- public downloads: R2 + Cache API, GitHub only on cold miss --------
-    const dl = url.pathname.match(/^\/download\/(apk|ipk|dmg)$/);
+    const dl = url.pathname.match(/^\/download\/(dmg)$/);
     if (dl) {
       if (request.method !== "GET") return json({ error: "method" }, 405);
       const ip = request.headers.get("CF-Connecting-IP") || "unknown";
@@ -290,7 +290,7 @@ export default {
       }
 
       const cache = caches.default;
-      const pat = { apk: /app-universal-debug\.apk$/, ipk: /\.ipk$/, dmg: /\.dmg$/ }[dl[1]];
+      const pat = /\.dmg$/;
 
       // Resolve current asset name via (cached) latest release.
       const rel = await releaseWithAsset(env, cache, dl[1], pat).catch(() => null);
