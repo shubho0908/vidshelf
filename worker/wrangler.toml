@@ -10,3 +10,7 @@ database_id = "DATABASE_ID_PLACEHOLDER"
 [[r2_buckets]]
 binding = "THUMBS"
 bucket_name = "vidshelf-thumbs"
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "vidshelf-media"

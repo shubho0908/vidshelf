@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { library, type Entry } from "../lib/storage";
+import { isMediaEntry, mediaEntry, readCatalogCache, refreshCatalog, type MediaItem } from "../lib/catalog";
 import { IS_WEB_BUILD, SYNC_URL } from "../config";
 import { getSyncConfig, hasCustomSyncConfig, setSyncConfig, lastSyncAt, syncNow, scheduleSync, pairStart, pairStatus, pairApprove, rotateKey, mintKey, type SyncResult, unlinkDevice } from "../lib/sync";
 import { parseLink } from "../lib/router";
@@ -69,13 +70,15 @@ function Hero({ entry }: { entry: Entry }) {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5-11-6.5z" /></svg>
             Play
           </button>
-          <button
-            data-focusable
-            onClick={() => nav(`/edit/${entry.id}`)}
-            className="rounded-2xl border border-white/15 bg-white/[0.08] px-6 py-3 text-[15px] font-semibold text-white backdrop-blur-md hover:bg-white/[0.14]"
-          >
-            Edit
-          </button>
+          {!isMediaEntry(entry.id) && (
+            <button
+              data-focusable
+              onClick={() => nav(`/edit/${entry.id}`)}
+              className="rounded-2xl border border-white/15 bg-white/[0.08] px-6 py-3 text-[15px] font-semibold text-white backdrop-blur-md hover:bg-white/[0.14]"
+            >
+              Edit
+            </button>
+          )}
         </div>
       </div>
     </section>
@@ -408,7 +411,12 @@ function SyncModal({ onClose, onSynced, onUnlinked }: { onClose: () => void; onS
 }
 
 export default function LibraryView() {
-  const [entries, setEntries] = useState<Entry[]>(() => library.list());
+  const [media, setMedia] = useState<MediaItem[]>(() => readCatalogCache());
+  const [shelfEntries, setShelfEntries] = useState<Entry[]>(() => library.list());
+  // Home-server videos first (the default shelf every install shows), then
+  // the device's own synced entries.
+  const entries = useMemo(() => [...media.map(mediaEntry), ...shelfEntries], [media, shelfEntries]);
+  const setEntries = (es: Entry[]) => setShelfEntries(es.filter((e) => !isMediaEntry(e.id)));
   const [query, setQuery] = useState("");
   const [syncOpen, setSyncOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -417,8 +425,10 @@ export default function LibraryView() {
   );
   const synced = getSyncConfig() !== null;
 
-  // Pull once per app open - the only automatic D1 read.
+  // Pull once per app open - the only automatic D1 read. The home-server
+  // catalog rides along: one tiny public GET.
   useEffect(() => {
+    void refreshCatalog().then(setMedia);
     if (!getSyncConfig()) return;
     void syncNow().then((r) => { if (r.ok) setEntries(library.list()); });
   }, []);
@@ -443,6 +453,7 @@ export default function LibraryView() {
     if (refreshing) return;
     setRefreshing(true);
     try {
+      await refreshCatalog().then(setMedia).catch(() => readCatalogCache());
       if (getSyncConfig()) await syncNow().catch(() => null);
       setEntries(library.list());
     } finally {
@@ -515,7 +526,7 @@ export default function LibraryView() {
           </div>
           <h2 className="t-display">Your shelf is empty</h2>
           <p className="t-body max-w-md text-slate-400">
-            Paste a YouTube or Google Drive link, or a direct video file. VidShelf embeds it - no uploads, no transcoding, no server.
+            Paste a YouTube link or a direct video file. VidShelf embeds it - no uploads, no transcoding.
           </p>
           <button data-focusable onClick={() => nav("/add")} className="bright mt-2 rounded-2xl bg-white px-8 py-3.5 text-[15px] font-bold text-black">
             Add your first video

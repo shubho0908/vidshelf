@@ -1,10 +1,12 @@
-import { parseLink } from "./router";
+import { parseLink, r2IdFrom } from "./router";
+import { SYNC_URL } from "../config";
 
 /** Best-effort thumbnail URL for a video link. null = show a placeholder. */
 export function thumbnailForUrl(raw: string): string | null {
   const p = parseLink(raw);
   if (p.kind === "youtube" && p.videoId) return `https://i.ytimg.com/vi/${p.videoId}/hqdefault.jpg`;
-  if (p.kind === "drive" && p.fileId) return `https://drive.google.com/thumbnail?id=${p.fileId}&sz=w1000`;
+  const r2 = r2IdFrom(raw);
+  if (r2) return `${SYNC_URL.replace(/\/+$/, "")}/media/thumb/${r2}`;
   return null;
 }
 

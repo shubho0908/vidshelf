@@ -1,18 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getSyncConfig, scheduleSync } from "../lib/sync";
-import { SYNC_URL } from "../config";
+import { scheduleSync } from "../lib/sync";
 import { entryThumbIds, library, type Entry, type VideoItem } from "../lib/storage";
-import { driveStreamUrl, parseLink, type ParsedLink } from "../lib/router";
+import { parseLink, type ParsedLink } from "../lib/router";
+import { findMediaEntry, isMediaEntry, refreshCatalog } from "../lib/catalog";
 import { retireThumb } from "../lib/thumbstore";
 import { goBack, nav } from "../lib/route";
 import { KindBadge, VideoThumb } from "../components/bits";
 import OwnPlayer from "../components/OwnPlayer";
 
 
-function Player({ parsed, driveFallback, onDriveFatal, onFullscreen, isFs }: {
+function Player({ parsed, onFullscreen, isFs }: {
   parsed: ParsedLink;
-  driveFallback: boolean;
-  onDriveFatal: () => void;
   onFullscreen: () => void;
   isFs: boolean;
 }) {
@@ -27,23 +25,7 @@ function Player({ parsed, driveFallback, onDriveFatal, onFullscreen, isFs }: {
       />
     );
   }
-  // Drive plays in OUR player (original-quality direct stream, remote-friendly).
-  // The iframe survives only as the automatic fallback if the stream fails.
-  if (parsed.kind === "drive") {
-    if (driveFallback || !parsed.fileId) {
-      return (
-        <iframe
-          src={parsed.playUrl ?? undefined}
-          title={parsed.label}
-          className="h-full w-full border-0 bg-black"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
-          allowFullScreen
-        />
-      );
-    }
-    const base = getSyncConfig()?.url || SYNC_URL;
-    return <OwnPlayer src={driveStreamUrl(parsed.fileId, base)} cors onFatalError={onDriveFatal} onFullscreen={onFullscreen} isFs={isFs} />;
-  }
+  if (parsed.kind === "r2") return <OwnPlayer src={parsed.playUrl!} cors onFullscreen={onFullscreen} isFs={isFs} />;
   if (parsed.kind === "hls") return <OwnPlayer src={parsed.playUrl!} hls onFullscreen={onFullscreen} isFs={isFs} />;
   if (parsed.kind === "direct") return <OwnPlayer src={parsed.playUrl!} onFullscreen={onFullscreen} isFs={isFs} />;
   return (
@@ -62,10 +44,18 @@ function Player({ parsed, driveFallback, onDriveFatal, onFullscreen, isFs }: {
 }
 
 export default function PlayerView({ id, index }: { id: string; index: number }) {
-  const [entry] = useState<Entry | null>(() => library.get(id));
+  const [entry, setEntry] = useState<Entry | null>(() => library.get(id) ?? findMediaEntry(id));
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [isFs, setIsFs] = useState(false);
-  const [driveFallback, setDriveFallback] = useState(false);
+
+  // Direct link into a home-server video with a cold catalog cache: fetch
+  // the catalog once, then resolve. Local library entries never need this.
+  useEffect(() => {
+    if (entry || !isMediaEntry(id)) return;
+    let alive = true;
+    void refreshCatalog().then(() => { if (alive) setEntry(findMediaEntry(id)); });
+    return () => { alive = false; };
+  }, [entry, id]);
   const boxRef = useRef<HTMLDivElement>(null);
   const video: VideoItem | null = entry?.videos[index] ?? entry?.videos[0] ?? null;
   const parsed0 = useMemo(() => (video ? parseLink(video.url) : null), [video]);
@@ -100,7 +90,7 @@ export default function PlayerView({ id, index }: { id: string; index: number })
   // TV remote on the OWN player (direct/HLS/Drive stream): focus the player
   // box, then OK toggles play/pause, left/right seek 10s, up/down volume.
   // The control bar stays spatial-nav reachable on its own.
-  const useOwn = Boolean(parsed0 && parsed0.kind !== "youtube" && parsed0.kind !== "ott" && parsed0.kind !== "unknown" && !(parsed0.kind === "drive" && driveFallback));
+  const useOwn = Boolean(parsed0 && parsed0.kind !== "youtube" && parsed0.kind !== "ott" && parsed0.kind !== "unknown");
   useEffect(() => {
     if (!useOwn) return;
     const onKey = (e: KeyboardEvent) => {
@@ -203,17 +193,21 @@ export default function PlayerView({ id, index }: { id: string; index: number })
         </button>
         <h1 className="t-title min-w-0 flex-1 truncate">{entry.title}</h1>
         {parsed0 && <span className="hidden sm:block"><KindBadge kind={parsed0.kind} label={parsed0.label} /></span>}
-        <button data-focusable onClick={() => nav(`/edit/${entry.id}`)} className="shrink-0 rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2.5 text-[13px] font-medium text-slate-200 backdrop-blur-md hover:bg-white/[0.12] sm:px-4 sm:text-sm">
-          Edit
-        </button>
-        <button
-          data-focusable
-          onClick={() => (confirmDelete ? doDelete() : setConfirmDelete(true))}
-          onBlur={() => setConfirmDelete(false)}
-          className={`shrink-0 rounded-2xl border px-3 py-2.5 text-[13px] font-medium backdrop-blur-md sm:px-4 sm:text-sm ${confirmDelete ? "border-red-400/60 bg-red-500/20 text-red-100" : "border-white/10 bg-white/[0.06] text-slate-200 hover:bg-white/[0.12]"}`}
-        >
-          {confirmDelete ? "Confirm delete" : "Delete"}
-        </button>
+        {!isMediaEntry(entry.id) && (
+          <>
+            <button data-focusable onClick={() => nav(`/edit/${entry.id}`)} className="shrink-0 rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2.5 text-[13px] font-medium text-slate-200 backdrop-blur-md hover:bg-white/[0.12] sm:px-4 sm:text-sm">
+              Edit
+            </button>
+            <button
+              data-focusable
+              onClick={() => (confirmDelete ? doDelete() : setConfirmDelete(true))}
+              onBlur={() => setConfirmDelete(false)}
+              className={`shrink-0 rounded-2xl border px-3 py-2.5 text-[13px] font-medium backdrop-blur-md sm:px-4 sm:text-sm ${confirmDelete ? "border-red-400/60 bg-red-500/20 text-red-100" : "border-white/10 bg-white/[0.06] text-slate-200 hover:bg-white/[0.12]"}`}
+            >
+              {confirmDelete ? "Confirm delete" : "Delete"}
+            </button>
+          </>
+        )}
       </header>
 
       <div className="pt-chrome flex flex-col">
@@ -227,8 +221,6 @@ export default function PlayerView({ id, index }: { id: string; index: number })
           {parsed0 ? (
             <Player
               parsed={parsed0}
-              driveFallback={driveFallback}
-              onDriveFatal={() => setDriveFallback(true)}
               onFullscreen={() => void toggleFullscreen()}
               isFs={isFs}
             />

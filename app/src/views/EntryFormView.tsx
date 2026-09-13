@@ -109,7 +109,7 @@ function ThumbField({
 function LinkHint({ url }: { url: string }) {
   const parsed = useMemo(() => parseLink(url), [url]);
   if (!url.trim()) return null;
-  const ok = parsed.kind === "youtube" || parsed.kind === "drive" || parsed.kind === "direct" || parsed.kind === "hls";
+  const ok = parsed.kind === "youtube" || parsed.kind === "direct" || parsed.kind === "hls";
   const thumb = thumbnailForUrl(url);
   return (
     <div className={`flex items-center gap-3.5 rounded-2xl border p-3 ${ok ? "border-white/[0.07] bg-white/[0.03]" : "border-red-400/30 bg-red-500/[0.07]"}`}>
@@ -121,7 +121,6 @@ function LinkHint({ url }: { url: string }) {
       <div className="min-w-0 flex-1">
         <KindBadge kind={parsed.kind} label={parsed.label} />
         {!ok && <div className="t-small mt-1.5 text-red-300">{parsed.blockReason}</div>}
-        {ok && parsed.kind === "drive" && <div className="t-small mt-1.5 text-slate-400">Plays via Google Drive preview (max 1080p, file must be shared).</div>}
         {ok && parsed.kind === "youtube" && <div className="t-small mt-1.5 text-slate-400">Plays via the official YouTube player. Some videos disable embedding.</div>}
       </div>
     </div>
@@ -231,7 +230,7 @@ export default function EntryFormView({ editId }: { editId?: string }) {
                   )}
                 </div>
                 <div className="text-[16px] font-semibold">{t === "video" ? "Single video" : "Playlist"}</div>
-                <div className="t-small text-slate-400">{t === "video" ? "One link: YouTube, Drive, or a video file" : "One entry holding multiple videos"}</div>
+                <div className="t-small text-slate-400">{t === "video" ? "One link: YouTube or a video file" : "One entry holding multiple videos"}</div>
               </button>
             ))}
           </div>
@@ -276,7 +275,7 @@ export default function EntryFormView({ editId }: { editId?: string }) {
                   data-focusable
                   value={v.url}
                   onChange={(e) => setUrl(i, e.target.value)}
-                  placeholder="https://www.youtube.com/watch?v=... or https://drive.google.com/file/d/..."
+                  placeholder="https://www.youtube.com/watch?v=... or https://example.com/video.mp4"
                   className={inputCls + " flex-1 font-mono !text-[13px]"}
                 />
                 {type === "playlist" && videos.length > 1 && (

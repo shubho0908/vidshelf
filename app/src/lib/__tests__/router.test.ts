@@ -29,7 +29,7 @@ describe("parseLink: youtube", () => {
   });
 });
 
-describe("parseLink: drive", () => {
+describe("parseLink: drive (removed - home server replaces it)", () => {
   const cases = [
     `https://drive.google.com/file/d/${FID}/view?usp=sharing`,
     `https://drive.google.com/file/d/${FID}/preview`,
@@ -37,13 +37,27 @@ describe("parseLink: drive", () => {
     `https://drive.google.com/uc?id=${FID}&export=download`,
   ];
   for (const url of cases) {
-    it(`parses ${url}`, () => {
+    it(`blocks ${url}`, () => {
       const p = parseLink(url);
-      expect(p.kind).toBe("drive");
-      expect(p.fileId).toBe(FID);
-      expect(p.playUrl).toBe(`https://drive.google.com/file/d/${FID}/preview`);
+      expect(p.kind).toBe("unknown");
+      expect(p.playUrl).toBeNull();
+      expect(p.blockReason).toContain("no longer supported");
     });
   }
+});
+
+describe("parseLink: r2 home-server media", () => {
+  const mid = "9f2b7c1ad4e84f0a8c3d5e6b";
+  it("parses r2:// urls to the worker stream route", () => {
+    const p = parseLink(`r2://${mid}`);
+    expect(p.kind).toBe("r2");
+    expect(p.playUrl).toBe(`https://vidshelf-sync.shubhoeducation.workers.dev/media/stream/${mid}`);
+    expect(p.label).toBe("Home server");
+  });
+  it("rejects short/garbage ids", () => {
+    expect(parseLink("r2://short").kind).not.toBe("r2");
+    expect(parseLink("r2://").kind).not.toBe("r2");
+  });
 });
 
 describe("parseLink: direct + hls", () => {

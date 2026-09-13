@@ -22,43 +22,6 @@
 //                            Per-IP combined budget: 3 downloads/min -> 429 +
 //                            Retry-After; 3 strikes while limited -> 30 min
 //                            cooldown. Only successful serves consume budget.
-// Warm-isolate cache for Drive file sizes (probe is a 1-byte Range fetch).
-// Concurrent players race the probe - dedupe with a promise cache.
-const driveSizeCache = new Map(); // fileId -> Promise<number|null>
-function driveUrl(id) {
-  const up = new URL("https://drive.usercontent.google.com/download");
-  up.searchParams.set("id", id);
-  up.searchParams.set("export", "download");
-  up.searchParams.set("confirm", "t");
-  return up.toString();
-}
-// usercontent flakes under rapid hits from an edge IP - retry before failing.
-async function driveFetch(id, rangeHeader) {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const res = await fetch(driveUrl(id), { headers: { Range: rangeHeader }, redirect: "follow" });
-    const ctype = res.headers.get("content-type") || "";
-    if (res.status === 206 && !ctype.startsWith("text/html")) return res;
-    res.body?.cancel().catch(() => {});
-    if (attempt < 2) await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
-  }
-  return null;
-}
-function driveSize(id) {
-  const hit = driveSizeCache.get(id);
-  if (hit) return hit;
-  const promise = (async () => {
-    const res = await driveFetch(id, "bytes=0-0");
-    const m = res && /\/(\d+)$/.exec(res.headers.get("content-range") || "");
-    if (!m) {
-      driveSizeCache.delete(id); // do not cache failures
-      return null;
-    }
-    return Number(m[1]);
-  })();
-  driveSizeCache.set(id, promise);
-  return promise;
-}
-
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
@@ -74,6 +37,74 @@ const WRITES_PER_HOUR_DEFAULT = 240;
 const DL_PER_MIN = 3;          // combined across apk/ipk/dmg, per IP
 const DL_STRIKES = 3;          // limited-hits before cooldown
 const DL_COOLDOWN_S = 1800;    // 30 min
+
+// --- home-server media (R2): READ-ONLY by design ----------------------------
+// The MEDIA bucket stays PRIVATE; bytes exit ONLY through the two GET routes
+// below. There is NO app-callable write/upload endpoint anywhere in this
+// worker - media is added out-of-band (wrangler/CI), never from an app.
+// Abuse gates: unguessable 24-hex media ids, per-IP minute limits, and a
+// global daily stream budget that trips long before the free-tier worker
+// request quota (100k/day) is at risk.
+const MEDIA_ID = /^[A-Za-z0-9_-]{16,64}$/;
+const MEDIA_CAT_PER_MIN = 30;      // catalog JSON is a few KB
+const MEDIA_STREAM_PER_MIN = 240;  // each seek costs one range request
+const MEDIA_THUMB_PER_MIN = 60;
+const MEDIA_PLAYER_PER_MIN = 120;  // every YouTube play loads the player page
+const MEDIA_STREAMS_PER_DAY = 48000; // global circuit breaker, all IPs combined
+
+// YouTube IFrame player page (self-hosted; replaces the old GitHub Pages
+// dependency - the vidshelf-player repo can stay private). Any real HTTPS
+// origin satisfies YouTube's Referer check, so webOS/Tauri webviews play.
+const PLAYER_HTML = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>VidShelf Player</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; }
+  #player { width: 100%; height: 100%; }
+  .err { color: #cbd5e1; font: 16px/1.5 system-ui, sans-serif; display: flex; height: 100%;
+         align-items: center; justify-content: center; text-align: center; padding: 24px; box-sizing: border-box; }
+</style>
+</head>
+<body>
+<div id="player"></div>
+<script>
+  const v = new URLSearchParams(location.search).get('v');
+  const show = (m) => { document.body.innerHTML = '<div class="err"></div>'; document.querySelector('.err').textContent = m; };
+  if (!v || !/^[A-Za-z0-9_-]{11}$/.test(v)) {
+    show('No video specified.');
+  } else {
+    const tag = document.createElement('script');
+    tag.src = 'https://www.youtube.com/iframe_api';
+    document.head.appendChild(tag);
+    window.onYouTubeIframeAPIReady = () => {
+      new YT.Player('player', {
+        videoId: v,
+        width: '100%',
+        height: '100%',
+        playerVars: { autoplay: 1, rel: 0, modestbranding: 1, playsinline: 1 },
+        events: {
+          onError: (e) => {
+            const map = {
+              2: 'Invalid video ID.',
+              5: 'This video cannot play in an embedded player.',
+              100: 'Video not found or private.',
+              101: 'The owner does not allow embedding this video.',
+              150: 'The owner does not allow embedding this video.',
+              153: 'Player configuration error.'
+            };
+            show(map[e.data] || 'Playback error (' + e.data + ').');
+          }
+        }
+      });
+    };
+  }
+</script>
+</body>
+</html>
+`;
 
 function json(body, status = 200, extra = {}) {
   return new Response(JSON.stringify(body), {
@@ -309,61 +340,97 @@ export default {
       return new Response(toClient, { headers });
     }
 
-    // ---- Drive media proxy: <video> cannot load usercontent directly on
-    // Chromium (octet-stream + nosniff -> ERR_BLOCKED_BY_ORB), and anonymous
-    // fetch is CORS-blocked. The worker re-serves the SAME bytes streamed
-    // (no storage) with Range passthrough and the nosniff stripped, so our
-    // own player works on every platform. HTML interstitials (quota pages)
-    // become 502 so the client falls back to the Drive iframe.
-    const dm = url.pathname.match(/^\/stream\/drive\/([A-Za-z0-9_-]{20,})$/);
-    if (dm) {
-      if (request.method !== "GET") return json({ error: "method" }, 405);
+    // ---- YouTube player page (public, tiny, cacheable) ------------------
+    if (url.pathname === "/player" || url.pathname === "/player.html") {
+      if (request.method !== "GET" && request.method !== "HEAD") return json({ error: "method" }, 405);
       const ip = request.headers.get("CF-Connecting-IP") || "unknown";
-      if (!(await rateGate(env, "stream", ip, 60, 600))) { // seeks cost a request each
+      if (!(await rateGate(env, "player", ip, 60, MEDIA_PLAYER_PER_MIN))) {
         return json({ error: "rate_limited" }, 429, { "Retry-After": "60" });
       }
-      // usercontent only serves BYTES for CLOSED ranges (bytes=N-M); an
-      // open-ended "bytes=0-" or a bare GET gets a 200 text/html interstitial
-      // instead. So: learn the total size from a cheap 1-byte probe, then
-      // translate every client request into a closed range capped at 64MB
-      // per hop. Returning less than asked is valid HTTP - the media stack
-      // just issues the next range.
-      const size = await driveSize(dm[1]);
-      if (size == null) return json({ error: "upstream interstitial" }, 502);
-      // usercontent enforces a DYNAMIC per-IP range-size cap (observed:
-      // 64MB worked, later 8MB already returned the HTML interstitial; 4MB
-      // held). Start at 4MB and halve-shrink on interstitial until it serves.
-      let start = 0;
-      let wantEnd = size - 1;
+      return new Response(PLAYER_HTML, {
+        headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=3600", ...CORS },
+      });
+    }
+
+    // ---- home-server media catalog (public read, server-managed only) ----
+    if (url.pathname === "/media/catalog") {
+      if (request.method !== "GET") return json({ error: "method" }, 405);
+      const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      if (!(await rateGate(env, "mediacat", ip, 60, MEDIA_CAT_PER_MIN))) {
+        return json({ error: "rate_limited" }, 429, { "Retry-After": "60" });
+      }
+      const rows = await env.DB.prepare(
+        "SELECT id, title, description, size_bytes, content_type, duration_sec, position, has_thumb, added_at FROM media_videos ORDER BY position ASC, added_at DESC"
+      ).all();
+      return json({
+        videos: rows.results.map((r) => ({
+          id: r.id, title: r.title, description: r.description || "",
+          sizeBytes: r.size_bytes, contentType: r.content_type,
+          durationSec: r.duration_sec, position: r.position,
+          hasThumb: !!r.has_thumb, addedAt: r.added_at,
+        })),
+      }, 200, { "Cache-Control": "public, max-age=60" });
+    }
+
+    // ---- media bytes: R2 private bucket, full Range support ----------------
+    const mm = url.pathname.match(/^\/media\/stream\/([A-Za-z0-9_-]{16,64})$/);
+    if (mm) {
+      if (request.method !== "GET" && request.method !== "HEAD") return json({ error: "method" }, 405);
+      const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      if (!(await rateGate(env, "mediastream", ip, 60, MEDIA_STREAM_PER_MIN))) {
+        return json({ error: "rate_limited" }, 429, { "Retry-After": "60" });
+      }
+      // Global daily circuit breaker: trips at ~half the free worker quota,
+      // so a hotlink storm can never take pairing/sync/downloads down with it.
+      if (!(await rateGate(env, "mediaday", "global", 86400, MEDIA_STREAMS_PER_DAY))) {
+        return json({ error: "daily_budget" }, 503, { "Retry-After": "3600" });
+      }
+      const row = await env.DB.prepare(
+        "SELECT r2_key, size_bytes, content_type FROM media_videos WHERE id = ?"
+      ).bind(mm[1]).first();
+      if (!row) return json({ error: "not found" }, 404);
+      const size = Number(row.size_bytes) || 0;
+      let start = 0, end = size - 1, status = 200;
       const rm = /^bytes=(\d+)-(\d*)$/.exec(request.headers.get("Range") || "");
       if (rm) {
         start = Number(rm[1]);
-        if (rm[2]) wantEnd = Math.min(Number(rm[2]), size - 1);
+        if (rm[2]) end = Math.min(Number(rm[2]), size - 1);
+        if (start >= size || end < start) {
+          return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${size}`, ...CORS } });
+        }
+        status = 206;
       }
-      if (start >= size) {
-        return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${size}`, ...CORS } });
-      }
-      let res = null;
-      let end = start;
-      for (const win of [4, 1].map((mb) => mb * 1024 * 1024).concat([256 * 1024, 64 * 1024])) {
-        end = Math.min(wantEnd, start + win - 1, size - 1);
-        if (end < start) break;
-        res = await driveFetch(dm[1], `bytes=${start}-${end}`);
-        if (res) break;
-      }
-      if (!res || end < start) return json({ error: "upstream failed" }, 502);
-      const ctype = res.headers.get("content-type") || "";
+      const obj = await env.MEDIA.get(row.r2_key, {
+        range: { offset: start, length: end - start + 1 },
+      });
+      if (!obj) return json({ error: "object missing" }, 404);
       const h = new Headers();
-      // ORB blocks opaque types (octet-stream) for media even without
-      // nosniff - relabel as video. Chromium demuxes by content, so the
-      // container (mp4/webm/mkv) is sniffed from the bytes themselves.
-      h.set("Content-Type", ctype.startsWith("video/") ? ctype : "video/mp4"); // nosniff intentionally NOT copied
-      h.set("Content-Range", `bytes ${start}-${end}/${size}`);
-      h.set("Content-Length", String(end - start + 1));
+      h.set("Content-Type", row.content_type || "video/mp4");
       h.set("Accept-Ranges", "bytes");
-      h.set("Cache-Control", "private, max-age=3600");
+      h.set("Content-Length", String(end - start + 1));
+      if (status === 206) h.set("Content-Range", `bytes ${start}-${end}/${size}`);
+      h.set("Cache-Control", "public, max-age=86400, immutable");
       Object.entries(CORS).forEach(([k, v]) => h.set(k, v));
-      return new Response(res.body, { status: 206, headers: h });
+      return new Response(request.method === "HEAD" ? null : obj.body, { status, headers: h });
+    }
+
+    // ---- media thumbnails (poster frames extracted at ingest) --------------
+    const mt = url.pathname.match(/^\/media\/thumb\/([A-Za-z0-9_-]{16,64})$/);
+    if (mt) {
+      if (request.method !== "GET" && request.method !== "HEAD") return json({ error: "method" }, 405);
+      const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      if (!(await rateGate(env, "mediathumb", ip, 60, MEDIA_THUMB_PER_MIN))) {
+        return json({ error: "rate_limited" }, 429, { "Retry-After": "60" });
+      }
+      const obj = await env.MEDIA.get("media/" + mt[1] + ".webp");
+      if (!obj) return json({ error: "not found" }, 404);
+      return new Response(request.method === "HEAD" ? null : obj.body, {
+        headers: {
+          "Content-Type": "image/webp",
+          "Cache-Control": "public, max-age=31536000, immutable",
+          ...CORS,
+        },
+      });
     }
 
     // ---- device pairing: public endpoints (IP-limited, tiny tables) --------

@@ -1,6 +1,6 @@
-import { YT_PLAYER_BASE } from "../config";
+import { SYNC_URL, YT_PLAYER_BASE } from "../config";
 
-export type LinkKind = "youtube" | "drive" | "direct" | "hls" | "ott" | "unknown";
+export type LinkKind = "youtube" | "r2" | "direct" | "hls" | "ott" | "unknown";
 
 export interface ParsedLink {
   kind: LinkKind;
@@ -62,29 +62,32 @@ function ytIdFrom(u: URL): string | null {
   return null;
 }
 
-/** Drive playback goes through OUR worker proxy: Chromium ORB-blocks the raw
- *  usercontent stream (octet-stream + nosniff) and anonymous fetch is
- *  CORS-blocked, so the worker re-serves the same bytes streamed through
- *  (no storage) with nosniff stripped. Live-proven to play while the embed
- *  iframe shows Google's throttle page. Undocumented upstream - PlayerView
- *  falls back to the Drive iframe on any error. */
-export function driveStreamUrl(fileId: string, workerBase: string): string {
-  return `${workerBase.replace(/\/+$/, "")}/stream/drive/${fileId}`;
+/** Home-server media id from an r2:// URL. These entries come from the
+ *  server-managed catalog (worker /media/catalog) and stream through the
+ *  worker's rate-limited /media/stream route - the R2 bucket itself is
+ *  private and never directly reachable. */
+const R2_ID = /^[A-Za-z0-9_-]{16,64}$/;
+export function r2IdFrom(raw: string): string | null {
+  const m = /^r2:\/\/([A-Za-z0-9_-]{16,64})$/.exec(raw.trim());
+  return m && R2_ID.test(m[1]) ? m[1] : null;
+}
+export function r2StreamUrl(id: string): string {
+  return `${SYNC_URL.replace(/\/+$/, "")}/media/stream/${id}`;
 }
 
-function driveIdFrom(u: URL): string | null {
+function isDriveUrl(u: URL): boolean {
   const host = u.hostname.replace(/^www\./, "");
-  if (host !== "drive.google.com" && host !== "docs.google.com") return null;
-  const m = u.pathname.match(/\/(?:file\/)?d\/([A-Za-z0-9_-]{20,})/);
-  if (m) return m[1];
-  const id = u.searchParams.get("id") ?? "";
-  return /^[A-Za-z0-9_-]{20,}$/.test(id) ? id : null;
+  return host === "drive.google.com" || host === "docs.google.com";
 }
 
 const HLS_EXT = /\.m3u8?($|\?)/i;
 const DIRECT_EXT = /\.(mp4|m4v|webm|mov|mkv|avi|mpg|mpeg|ogv)($|\?)/i;
 
 export function parseLink(raw: string): ParsedLink {
+  const r2 = r2IdFrom(raw);
+  if (r2) {
+    return { kind: "r2", originalUrl: raw, playUrl: r2StreamUrl(r2), label: "Home server" };
+  }
   const u = normalize(raw);
   if (!u) {
     return { kind: "unknown", originalUrl: raw, playUrl: null, label: "Unknown link", blockReason: "This does not look like a valid URL." };
@@ -96,14 +99,13 @@ export function parseLink(raw: string): ParsedLink {
     return { kind: "youtube", originalUrl: raw, playUrl: `${YT_PLAYER_BASE}?v=${yt}`, videoId: yt, label: "YouTube" };
   }
 
-  const driveId = driveIdFrom(u);
-  if (driveId) {
+  if (isDriveUrl(u)) {
     return {
-      kind: "drive",
+      kind: "unknown",
       originalUrl: raw,
-      playUrl: `https://drive.google.com/file/d/${driveId}/preview`,
-      fileId: driveId,
+      playUrl: null,
       label: "Google Drive",
+      blockReason: "Google Drive links are no longer supported. Videos now stream from the home server - they appear in the library automatically.",
     };
   }
 
@@ -131,6 +133,6 @@ export function parseLink(raw: string): ParsedLink {
     originalUrl: raw,
     playUrl: null,
     label: "Unsupported link",
-    blockReason: "Supported links: YouTube, Google Drive share links, and direct video files (.mp4, .m3u8, .webm...). Streaming apps like Netflix or Prime Video cannot be embedded.",
+    blockReason: "Supported links: YouTube and direct video files (.mp4, .m3u8, .webm...). Streaming apps like Netflix or Prime Video cannot be embedded.",
   };
 }
