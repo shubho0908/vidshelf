@@ -14,7 +14,8 @@ one key. Plays in its own fast, remote-friendly player.
     dmg ships only from this private repo's releases).
   - `npm run build:web` - public web bundle (the baked key is aliased OUT;
     CI greps the bundle and fails on any leak). Deployed to Vercel from
-    `main` automatically.
+    `main` automatically. The site root serves the app directly (there is
+    no landing page; `/app` permanently redirects to `/`).
 - `worker/` - Cloudflare Worker (`vidshelf-sync`). D1 for shelf sync +
   pairing + the home-server media catalog; private R2 buckets
   `vidshelf-thumbs` (thumbnails) and `vidshelf-media` (movies).
@@ -25,8 +26,13 @@ one key. Plays in its own fast, remote-friendly player.
 - The media bucket is PRIVATE. Bytes exit only through the worker's
   rate-limited GET routes: `/media/catalog`, `/media/stream/<id>` (full
   Range support), `/media/thumb/<id>`.
-- There is NO upload endpoint - apps physically cannot write to R2. Media
-  is ingested out-of-band (wrangler/CI ops workflow) only.
+- The worker itself still has NO upload endpoint. Media is added through
+  the companion `vidshelf-uploader` app (separate private repo): a
+  PIN-gated Vercel site where the browser - or any CLI agent with the
+  PIN - uploads direct-to-R2 via short-lived presigned URLs (multipart
+  for large files) and the file registers in the same catalog. PIN
+  verification, lockouts, rate limits, and the 9.7GB storage guard all
+  run server-side.
 - Abuse gates: unguessable 24-hex media ids, per-IP minute limits, and a
   global daily stream circuit breaker that trips well before the free
   worker quota is at risk.
@@ -45,5 +51,4 @@ one key. Plays in its own fast, remote-friendly player.
 - `CI` (every push/PR, Linux): tests, both builds, web-bundle key-leak gate.
 - `Sync backend` (manual): creates D1 + R2 buckets, applies schema,
   deploys the worker.
-- `Media ingest` (manual): migrates/ingests server media into R2 + catalog.
 - `Release` (version tags only): macOS dmg -> GitHub release.
